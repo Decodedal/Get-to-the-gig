@@ -107,28 +107,36 @@
             // Obstacles
             obstacles: {
                 cop: {
-                    width: 30,
-                    height: 50,
-                    color: '#ffff00',
+                    // Triangles - instant death
+                    width: 40,
+                    height: 40,
+                    color: '#00ff41', // Neon green (cop uniform)
                     outline: '#000000',
                     outlineWidth: 3,
-                    isPlatform: true // Can be landed on
+                    isPlatform: false, // Always dangerous
+                    isDestructible: false
                 },
                 fascist: {
+                    // Red squares - can jump on to destroy, or take damage
                     width: 40,
                     height: 40,
-                    color: '#ff006e',
+                    color: '#ff0000', // Red
                     outline: '#000000',
                     outlineWidth: 3,
-                    isPlatform: true // Can be landed on
+                    isPlatform: true, // Can land on top to destroy
+                    isDestructible: true,
+                    damageOnSide: true,
+                    pointValue: 10
                 },
-                triangle: {
+                obstacle: {
+                    // Yellow squares - trash cans, barriers, etc.
                     width: 40,
                     height: 40,
-                    color: '#ff0000', // Bright red for danger
+                    color: '#ffff00', // Yellow
                     outline: '#000000',
                     outlineWidth: 3,
-                    isPlatform: false // Always dangerous
+                    isPlatform: true, // Can land on
+                    isDestructible: false
                 },
                 spawnDistance: 250, // Minimum distance between obstacles
                 maxSpawnDistance: 400, // Maximum distance for variety
@@ -189,7 +197,11 @@
             isJumping: false,
             isOnGround: true,
             isOnPlatform: false,
-            currentPlatform: null
+            currentPlatform: null,
+            health: 3, // Player health
+            maxHealth: 3,
+            invulnerable: false, // Brief invulnerability after taking damage
+            invulnerableTime: 0
         };
 
         // Game data
@@ -198,6 +210,7 @@
         let distance = 0;
         let frameCount = 0;
         let lastObstacleX = CONFIG.canvas.width;
+        let score = 0; // Points from destroying fascists
 
         // ============================================
         // OBSTACLE MANAGEMENT
@@ -224,15 +237,15 @@
             const difficultyLevel = Math.floor(distance / 50); // Increases every 50m
 
             // Calculate spawn probabilities based on difficulty
-            let types = ['cop', 'fascist', 'triangle'];
-            let weights = [30, 30, 20]; // Start with fewer triangles
+            let types = ['cop', 'fascist', 'obstacle'];
+            let weights = [20, 30, 50]; // Start with more obstacles, fewer cops
 
-            // As difficulty increases, add more triangles and complexity
+            // As difficulty increases, add more cops and fascists
             if (difficultyLevel > 2) {
-                weights = [25, 25, 35]; // More triangles
+                weights = [25, 35, 40]; // More enemies
             }
             if (difficultyLevel > 5) {
-                weights = [20, 20, 50]; // Even more triangles
+                weights = [35, 40, 25]; // Much more dangerous
             }
 
             // Weighted random selection
@@ -248,24 +261,24 @@
                 random -= weights[i];
             }
 
-            // Platforms can be at different heights (but not triangles)
-            let heightLevel = 0;
-            if (randomType !== 'triangle' && difficultyLevel > 1) {
-                // Occasionally spawn platforms at higher levels
-                const heightChance = Math.random();
-                if (heightChance < 0.2 && difficultyLevel > 3) {
-                    heightLevel = 2; // High platform
-                } else if (heightChance < 0.4) {
-                    heightLevel = 1; // Medium platform
+            // Create base obstacle at ground level
+            obstacles.push(createObstacle(randomType, 0));
+
+            // Create stacked sequences (only for platforms, not cops)
+            if (randomType === 'obstacle' || randomType === 'fascist') {
+                const stackChance = Math.random();
+
+                // 30% chance for 2-high stack
+                if (stackChance < 0.3 && difficultyLevel > 1) {
+                    const stackType = Math.random() < 0.5 ? 'obstacle' : 'fascist';
+                    obstacles.push(createObstacle(stackType, 1));
+
+                    // 15% chance for 3-high stack (requires jumping on first to reach)
+                    if (stackChance < 0.15 && difficultyLevel > 3) {
+                        const stack3Type = Math.random() < 0.3 ? 'fascist' : 'obstacle';
+                        obstacles.push(createObstacle(stack3Type, 2));
+                    }
                 }
-            }
-
-            obstacles.push(createObstacle(randomType, heightLevel));
-
-            // Sometimes spawn stacked obstacles for more challenge
-            if (difficultyLevel > 4 && Math.random() < 0.15) {
-                const stackType = Math.random() < 0.5 ? 'cop' : 'fascist';
-                obstacles.push(createObstacle(stackType, 1));
             }
         }
 
@@ -387,15 +400,26 @@
             player.isOnPlatform = false;
             player.currentPlatform = null;
 
-            for (let obstacle of obstacles) {
-                // Triangles always hurt
-                if (obstacle.type === 'triangle') {
+            // Update invulnerability timer
+            if (player.invulnerable) {
+                player.invulnerableTime--;
+                if (player.invulnerableTime <= 0) {
+                    player.invulnerable = false;
+                }
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                const obstacleConfig = CONFIG.obstacles[obstacle.type];
+
+                // Cops (triangles) always kill instantly
+                if (obstacle.type === 'cop') {
                     if (checkCollision(player, obstacle)) {
-                        return true; // Game over
+                        return 'death'; // Instant game over
                     }
                 }
-                // Platforms can be landed on
-                else if (obstacle.isPlatform) {
+                // Platforms and fascists can be landed on
+                else if (obstacleConfig.isPlatform) {
                     if (checkPlatformLanding(player, obstacle)) {
                         // Land on platform
                         player.y = obstacle.y - player.height;
@@ -404,9 +428,28 @@
                         player.isOnPlatform = true;
                         player.currentPlatform = obstacle;
                         player.isJumping = false;
+
+                        // If it's a destructible fascist, destroy it and give points
+                        if (obstacleConfig.isDestructible) {
+                            score += obstacleConfig.pointValue;
+                            obstacles.splice(i, 1); // Remove the fascist
+                            player.velocityY = CONFIG.player.jumpForce * 0.5; // Small bounce
+                        }
                     } else if (checkCollision(player, obstacle)) {
-                        // Hit from side or bottom - game over
-                        return true;
+                        // Hit from side or bottom
+                        if (obstacleConfig.damageOnSide && !player.invulnerable) {
+                            // Take damage from fascist
+                            player.health--;
+                            player.invulnerable = true;
+                            player.invulnerableTime = 60; // 1 second at 60fps
+
+                            if (player.health <= 0) {
+                                return 'death'; // Game over
+                            }
+                        } else if (obstacle.type === 'obstacle') {
+                            // Regular obstacles kill on side hit
+                            return 'death';
+                        }
                     }
                 }
             }
@@ -464,16 +507,18 @@
             ctx.fillStyle = CONFIG.colors.playerOutline;
             ctx.fillRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
 
-            // Draw player
-            ctx.fillStyle = CONFIG.colors.player;
-            ctx.fillRect(player.x, player.y, player.width, player.height);
+            // Draw player (flash when invulnerable)
+            if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                ctx.fillStyle = CONFIG.colors.player;
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+            }
         }
 
         function drawObstacle(obstacle) {
             const obstacleConfig = CONFIG.obstacles[obstacle.type];
 
-            if (obstacle.type === 'triangle') {
-                // Draw triangle (pointing up - dangerous!)
+            if (obstacle.type === 'cop') {
+                // Draw triangle (cop - instant death!)
                 const centerX = obstacle.x + obstacle.width / 2;
                 const topY = obstacle.y;
                 const bottomY = obstacle.y + obstacle.height;
@@ -498,7 +543,7 @@
                 ctx.closePath();
                 ctx.fill();
             } else {
-                // Draw rectangle/square for platforms
+                // Draw square for fascists and obstacles
                 // Draw black outline
                 ctx.fillStyle = obstacleConfig.outline;
                 const outlineWidth = obstacleConfig.outlineWidth;
@@ -520,26 +565,28 @@
         }
 
         function drawUI() {
-            ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.font = 'bold 20px Courier New';
             ctx.textAlign = 'left';
 
             // Distance counter
             const distanceText = `Distance: ${Math.floor(distance)}m`;
-
-            // Shadow effect
             ctx.fillStyle = CONFIG.colors.ui.shadow;
             ctx.fillText(distanceText, 21, 31);
-
             ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.fillText(distanceText, 20, 30);
+
+            // Score
+            const scoreText = `Score: ${score}`;
+            ctx.fillStyle = CONFIG.colors.ui.shadow;
+            ctx.fillText(scoreText, 21, 56);
+            ctx.fillStyle = CONFIG.colors.ui.text;
+            ctx.fillText(scoreText, 20, 55);
 
             // Difficulty level indicator
             const difficultyLevel = Math.floor(distance / 50);
             const difficultyText = `Level: ${difficultyLevel}`;
-
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText(difficultyText, 21, 56);
+            ctx.fillText(difficultyText, 21, 81);
 
             // Color based on difficulty
             if (difficultyLevel < 3) {
@@ -549,7 +596,25 @@
             } else {
                 ctx.fillStyle = CONFIG.colors.ui.accent; // Pink - hard
             }
-            ctx.fillText(difficultyText, 20, 55);
+            ctx.fillText(difficultyText, 20, 80);
+
+            // Health bar (hearts)
+            ctx.textAlign = 'right';
+            ctx.font = 'bold 24px Courier New';
+            const healthX = CONFIG.canvas.width - 20;
+
+            for (let i = 0; i < player.maxHealth; i++) {
+                const x = healthX - (i * 30);
+                if (i < player.health) {
+                    // Full heart
+                    ctx.fillStyle = CONFIG.colors.ui.accent;
+                    ctx.fillText('♥', x, 30);
+                } else {
+                    // Empty heart
+                    ctx.fillStyle = '#444444';
+                    ctx.fillText('♡', x, 30);
+                }
+            }
         }
 
         function drawStartScreen() {
@@ -561,41 +626,43 @@
 
             // Title with glitchy outline effect
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 3, 77);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 3, 67);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 2, 76);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 2, 66);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2, 75);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2, 65);
 
             // Game instructions
-            ctx.font = 'bold 16px Courier New';
+            ctx.font = 'bold 15px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Red Triangles: Always Deadly!', CONFIG.canvas.width / 2, 130);
-            ctx.fillText('Yellow/Pink Platforms: Land on Top!', CONFIG.canvas.width / 2, 150);
-            ctx.fillText('Difficulty increases over time...', CONFIG.canvas.width / 2, 170);
+            ctx.fillText('🔺 Green Triangles (COPS): Instant death!', CONFIG.canvas.width / 2, 120);
+            ctx.fillText('🟥 Red Squares (FASCISTS): Jump on to destroy (+10pts)', CONFIG.canvas.width / 2, 140);
+            ctx.fillText('   Hit from side = damage', CONFIG.canvas.width / 2, 157);
+            ctx.fillText('🟨 Yellow Squares: Safe platforms - land on top', CONFIG.canvas.width / 2, 177);
+            ctx.fillText('Watch for stacked obstacles!', CONFIG.canvas.width / 2, 197);
 
             // Instructions
-            ctx.font = 'bold 24px Courier New';
+            ctx.font = 'bold 22px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 2, 221);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 2, 241);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 1, 222);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 1, 242);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2, 220);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2, 240);
 
             // Start instruction
-            ctx.font = 'bold 20px Courier New';
+            ctx.font = 'bold 18px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, 271);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, 281);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, 272);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, 282);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, 270);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, 280);
 
             // Mobile instruction
-            ctx.font = 'bold 14px Courier New';
+            ctx.font = 'bold 12px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('(or tap on mobile)', CONFIG.canvas.width / 2, 295);
+            ctx.fillText('(or tap on mobile)', CONFIG.canvas.width / 2, 300);
         }
 
         function drawGameOverScreen() {
@@ -607,28 +674,35 @@
 
             // Game Over text with glitch effect
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2 + 3, CONFIG.canvas.height / 2 - 47);
+            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2 + 3, CONFIG.canvas.height / 2 - 57);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 48);
+            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 58);
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 50);
+            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 60);
 
-            // Distance
+            // Score
             ctx.font = 'bold 24px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            const distanceText = `Distance: ${Math.floor(distance)}m`;
-            ctx.fillText(distanceText, CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 2);
+            const scoreText = `Score: ${score}`;
+            ctx.fillText(scoreText, CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 12);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText(distanceText, CONFIG.canvas.width / 2, CONFIG.canvas.height / 2);
+            ctx.fillText(scoreText, CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 15);
+
+            // Distance
+            ctx.fillStyle = CONFIG.colors.ui.shadow;
+            const distanceText = `Distance: ${Math.floor(distance)}m`;
+            ctx.fillText(distanceText, CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 22);
+            ctx.fillStyle = CONFIG.colors.ui.text;
+            ctx.fillText(distanceText, CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 20);
 
             // Restart instruction
             ctx.font = 'bold 20px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 51);
+            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 61);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 1, CONFIG.canvas.height / 2 + 52);
+            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 1, CONFIG.canvas.height / 2 + 62);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 50);
+            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 60);
         }
 
         function drawGame() {
@@ -651,6 +725,9 @@
             player.isOnGround = true;
             player.isOnPlatform = false;
             player.currentPlatform = null;
+            player.health = player.maxHealth;
+            player.invulnerable = false;
+            player.invulnerableTime = 0;
 
             // Reset game data
             obstacles = [];
@@ -658,9 +735,10 @@
             distance = 0;
             frameCount = 0;
             lastObstacleX = CONFIG.canvas.width;
+            score = 0;
 
             // Spawn initial obstacles (start easy with platforms)
-            obstacles.push(createObstacle('cop', 0));
+            obstacles.push(createObstacle('obstacle', 0));
         }
 
         function startGame() {
@@ -701,7 +779,8 @@
             updateObstacles();
 
             // Check collisions
-            if (checkCollisions()) {
+            const collisionResult = checkCollisions();
+            if (collisionResult === 'death') {
                 endGame();
             }
         }
