@@ -153,7 +153,15 @@
 
             // Audio
             audio: {
-                musicPath: 'path/to/your/music.mp3', // User will replace this
+                musicFolder: 'music/', // Folder containing music files
+                musicFiles: [
+                    'song1.mp3',
+                    'song2.mp3',
+                    'song3.mp3',
+                    'song4.mp3',
+                    'song5.mp3'
+                    // Add more songs here
+                ],
                 volume: 0.5
             }
         };
@@ -182,10 +190,25 @@
             console.log('Logo image not found - will use solid background');
         };
 
-        // Audio
-        const backgroundMusic = new Audio(CONFIG.audio.musicPath);
-        backgroundMusic.loop = true;
-        backgroundMusic.volume = CONFIG.audio.volume;
+        // Audio - select random song
+        let backgroundMusic = null;
+        let currentSongIndex = -1;
+
+        function loadRandomSong() {
+            // Select a random song
+            const randomIndex = Math.floor(Math.random() * CONFIG.audio.musicFiles.length);
+            currentSongIndex = randomIndex;
+            const songPath = CONFIG.audio.musicFolder + CONFIG.audio.musicFiles[randomIndex];
+
+            backgroundMusic = new Audio(songPath);
+            backgroundMusic.loop = true;
+            backgroundMusic.volume = CONFIG.audio.volume;
+
+            console.log('Loading song:', CONFIG.audio.musicFiles[randomIndex]);
+        }
+
+        // Load initial song
+        loadRandomSong();
 
         // Player object
         const player = {
@@ -211,18 +234,19 @@
         let frameCount = 0;
         let lastObstacleX = CONFIG.canvas.width;
         let score = 0; // Points from destroying fascists
+        let lastTripleStackDistance = -500; // Track when we last spawned a triple stack
 
         // ============================================
         // OBSTACLE MANAGEMENT
         // ============================================
-        function createObstacle(type, heightLevel = 0) {
+        function createObstacle(type, heightLevel = 0, xOffset = 0) {
             const obstacleConfig = CONFIG.obstacles[type];
             // Height levels: 0 = ground, 1 = medium, 2 = high
             const yOffset = heightLevel * 60; // Stack height for platforms
 
             return {
                 type: type,
-                x: CONFIG.canvas.width,
+                x: CONFIG.canvas.width + xOffset,
                 y: CONFIG.ground.y - obstacleConfig.height - yOffset,
                 width: obstacleConfig.width,
                 height: obstacleConfig.height,
@@ -230,6 +254,20 @@
                 isPlatform: obstacleConfig.isPlatform,
                 heightLevel: heightLevel
             };
+        }
+
+        function spawnTripleStackSequence() {
+            // Spawn a single yellow platform
+            obstacles.push(createObstacle('obstacle', 0, 0));
+
+            // Spawn triple-stack yellows further ahead (player must jump from the single to clear these)
+            const tripleStackX = 180; // Distance ahead for the triple stack
+            obstacles.push(createObstacle('obstacle', 0, tripleStackX));
+            obstacles.push(createObstacle('obstacle', 1, tripleStackX));
+            obstacles.push(createObstacle('obstacle', 2, tripleStackX));
+
+            lastTripleStackDistance = distance;
+            console.log('Spawned triple-stack sequence at distance:', distance);
         }
 
         function spawnObstacle() {
@@ -312,7 +350,18 @@
             const spawnDistance = minDistance + Math.random() * (maxDistance - minDistance);
 
             if (rightmostObstacle < CONFIG.canvas.width - spawnDistance) {
-                spawnObstacle();
+                // Check if we should spawn a triple-stack sequence
+                // Only spawn if: difficulty > 2, hasn't spawned recently, and random chance
+                const distanceSinceLastTriple = distance - lastTripleStackDistance;
+                const shouldSpawnTriple = difficultyLevel > 2 &&
+                                         distanceSinceLastTriple > 200 &&
+                                         Math.random() < 0.15; // 15% chance
+
+                if (shouldSpawnTriple) {
+                    spawnTripleStackSequence();
+                } else {
+                    spawnObstacle();
+                }
             }
         }
 
@@ -745,6 +794,7 @@
             frameCount = 0;
             lastObstacleX = CONFIG.canvas.width;
             score = 0;
+            lastTripleStackDistance = -500; // Reset triple stack tracking
 
             // Spawn initial obstacles (start easy with platforms)
             obstacles.push(createObstacle('obstacle', 0));
@@ -753,6 +803,12 @@
         function startGame() {
             resetGame();
             gameState = 'playing';
+
+            // Load a new random song each time the game starts
+            if (backgroundMusic) {
+                backgroundMusic.pause();
+            }
+            loadRandomSong();
 
             // Start music
             backgroundMusic.currentTime = 0;
