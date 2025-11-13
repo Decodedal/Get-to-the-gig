@@ -43,8 +43,8 @@
         const CONFIG = {
             // Canvas
             canvas: {
-                width: 800,
-                height: 400
+                width: 1200,
+                height: 600
             },
 
             // Colors - Punk Aesthetic
@@ -89,37 +89,40 @@
 
             // Player
             player: {
-                width: 30,
-                height: 40,
+                width: 60,
+                height: 80,
                 x: 150, // Fixed x position (centered-ish)
-                groundY: 300, // Y position when on ground
-                jumpForce: -12,
-                gravity: 0.6,
-                maxFallSpeed: 15
+                groundY: 450, // Y position when on ground
+                jumpForce: -15,
+                gravity: 0.7,
+                maxFallSpeed: 18
             },
 
             // Ground
             ground: {
-                y: 340,
-                height: 60
+                y: 510,
+                height: 90
             },
 
             // Obstacles
             obstacles: {
                 cop: {
-                    // Triangles - instant death
-                    width: 40,
-                    height: 40,
+                    // Cop sprites - instant death
+                    width: 60,
+                    height: 60,
                     color: '#00ff41', // Neon green (cop uniform)
                     outline: '#000000',
                     outlineWidth: 3,
                     isPlatform: false, // Always dangerous
-                    isDestructible: false
+                    isDestructible: false,
+                    frameCount: 4, // Cop sprite sheet has 4 frames
+                    frameWidth: 127.75, // 511 / 4
+                    frameHeight: 131
                 },
                 fascist: {
                     // Red squares - can jump on to destroy, or take damage
-                    width: 40,
-                    height: 40,
+                    width: 60,
+                    height: 60,
                     color: '#ff0000', // Red
                     outline: '#000000',
                     outlineWidth: 3,
@@ -130,8 +133,8 @@
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
-                    width: 40,
-                    height: 40,
+                    width: 60,
+                    height: 60,
                     color: '#ffff00', // Yellow
                     outline: '#000000',
                     outlineWidth: 3,
@@ -242,10 +245,27 @@
             console.log('Failed to load trash can sprite');
         };
 
+        // Fire gif for burning trash cans
+        const fireGif = new Image();
+        fireGif.src = 'assets/fire.gif'; // User will add this
+        let fireGifLoaded = false;
+        fireGif.onload = () => {
+            fireGifLoaded = true;
+            console.log('Fire gif loaded');
+        };
+        fireGif.onerror = () => {
+            console.log('Fire gif not found - will use trash cans without fire');
+        };
+
         // Animation state
         let animationFrame = 0;
         let animationCounter = 0;
         const animationSpeed = 5; // Change frame every 5 game frames
+
+        // Cop animation state
+        let copAnimationFrame = 0;
+        let copAnimationCounter = 0;
+        const copAnimationSpeed = 8; // Slower animation for cops
 
         // Audio - select random song
         let backgroundMusic = null;
@@ -296,10 +316,10 @@
         // ============================================
         // OBSTACLE MANAGEMENT
         // ============================================
-        function createObstacle(type, heightLevel = 0, xOffset = 0) {
+        function createObstacle(type, heightLevel = 0, xOffset = 0, isBurning = false) {
             const obstacleConfig = CONFIG.obstacles[type];
             // Height levels: 0 = ground, 1 = medium, 2 = high
-            const yOffset = heightLevel * 60; // Stack height for platforms
+            const yOffset = heightLevel * 90; // Stack height for platforms (scaled up)
 
             return {
                 type: type,
@@ -309,7 +329,8 @@
                 height: obstacleConfig.height,
                 color: obstacleConfig.color,
                 isPlatform: obstacleConfig.isPlatform,
-                heightLevel: heightLevel
+                heightLevel: heightLevel,
+                isBurning: isBurning // Burning trash cans do damage
             };
         }
 
@@ -357,10 +378,17 @@
             }
 
             // Create base obstacle at ground level
-            obstacles.push(createObstacle(randomType, 0));
+            // For trash cans, randomly make them burning (dangerous)
+            let isBurning = false;
+            if (randomType === 'obstacle') {
+                // Higher difficulty = more burning trash cans
+                const burningChance = Math.min(0.3 + (difficultyLevel * 0.05), 0.6);
+                isBurning = Math.random() < burningChance;
+            }
+            obstacles.push(createObstacle(randomType, 0, 0, isBurning));
 
             // STACKING LOGIC: Objects on bottom, people on top
-            // Cops (triangles) never stack - they're instant death obstacles
+            // Cops just walk around - not dangerous anymore
 
             if (randomType === 'obstacle' && difficultyLevel > 1) {
                 // Yellow obstacle (trash can, etc.) - can have fascists standing on top
@@ -527,11 +555,10 @@
                 const obstacle = obstacles[i];
                 const obstacleConfig = CONFIG.obstacles[obstacle.type];
 
-                // Cops (triangles) always kill instantly
+                // Cops just walk around - no collision needed
                 if (obstacle.type === 'cop') {
-                    if (checkCollision(player, obstacle)) {
-                        return 'death'; // Instant game over
-                    }
+                    // Cops are now harmless scenery
+                    continue;
                 }
                 // Platforms and fascists can be landed on
                 else if (obstacleConfig.isPlatform) {
@@ -561,8 +588,8 @@
                             if (player.health <= 0) {
                                 return 'death'; // Game over
                             }
-                        } else if (obstacle.type === 'obstacle') {
-                            // Regular obstacles kill on side hit
+                        } else if (obstacle.type === 'obstacle' && obstacle.isBurning) {
+                            // Burning trash cans kill instantly
                             return 'death';
                         }
                     }
@@ -655,16 +682,25 @@
             const obstacleConfig = CONFIG.obstacles[obstacle.type];
 
             if (obstacle.type === 'cop') {
+                // Update cop animation frame
+                if (gameState === 'playing') {
+                    copAnimationCounter++;
+                    if (copAnimationCounter >= copAnimationSpeed) {
+                        copAnimationCounter = 0;
+                        copAnimationFrame = (copAnimationFrame + 1) % CONFIG.obstacles.cop.frameCount;
+                    }
+                }
+
                 // Draw cop sprite if loaded, otherwise triangle
                 if (copSpriteLoaded && copSprite.complete) {
-                    // Cop sprite sheet is 511x131, appears to have ~3-4 frames
-                    // Let's use the first frame (roughly 1/4 of the width)
-                    const frameWidth = 511 / 4;
-                    const frameHeight = 131;
+                    // Draw the current frame from the sprite sheet
+                    const frameWidth = CONFIG.obstacles.cop.frameWidth;
+                    const frameHeight = CONFIG.obstacles.cop.frameHeight;
+                    const sourceX = copAnimationFrame * frameWidth;
 
                     ctx.drawImage(
                         copSprite,
-                        0, 0, // Source x, y (first frame)
+                        sourceX, 0, // Source x, y (current frame)
                         frameWidth, frameHeight, // Source width, height
                         obstacle.x, obstacle.y, // Dest x, y
                         obstacle.width, obstacle.height // Dest width, height
@@ -703,6 +739,21 @@
                         obstacle.x, obstacle.y,
                         obstacle.width, obstacle.height
                     );
+
+                    // Draw fire on top if this is a burning obstacle
+                    if (obstacle.isBurning && fireGifLoaded && fireGif.complete) {
+                        // Draw fire gif on top of trash can
+                        const fireWidth = obstacle.width * 1.2;
+                        const fireHeight = obstacle.height * 0.8;
+                        const fireX = obstacle.x - (fireWidth - obstacle.width) / 2;
+                        const fireY = obstacle.y - fireHeight * 0.6; // Position above trash can
+
+                        ctx.drawImage(
+                            fireGif,
+                            fireX, fireY,
+                            fireWidth, fireHeight
+                        );
+                    }
                 } else {
                     // Fallback: Draw square
                     ctx.fillStyle = obstacleConfig.outline;
@@ -714,7 +765,8 @@
                         obstacle.height + (outlineWidth * 2)
                     );
 
-                    ctx.fillStyle = obstacle.color;
+                    // Use orange/red color for burning obstacles
+                    ctx.fillStyle = obstacle.isBurning ? '#ff6600' : obstacle.color;
                     ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
                 }
             } else {
@@ -810,34 +862,35 @@
             // Game instructions
             ctx.font = 'bold 15px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('🔺 Green Triangles (COPS): Instant death!', CONFIG.canvas.width / 2, 120);
-            ctx.fillText('🟥 Red Squares (FASCISTS): Jump on to destroy (+10pts)', CONFIG.canvas.width / 2, 140);
-            ctx.fillText('   Hit from side = damage', CONFIG.canvas.width / 2, 157);
-            ctx.fillText('🟨 Yellow Squares: Safe platforms - land on top', CONFIG.canvas.width / 2, 177);
-            ctx.fillText('Watch for stacked obstacles!', CONFIG.canvas.width / 2, 197);
+            ctx.fillText('👮 COPS: Harmless - just running around', CONFIG.canvas.width / 2, 120);
+            ctx.fillText('🗑️ TRASH CANS: Safe platforms - land on top', CONFIG.canvas.width / 2, 140);
+            ctx.fillText('🔥 BURNING TRASH CANS: Instant death!', CONFIG.canvas.width / 2, 160);
+            ctx.fillText('🟥 Red Squares (FASCISTS): Jump on to destroy (+10pts)', CONFIG.canvas.width / 2, 180);
+            ctx.fillText('   Hit from side = damage', CONFIG.canvas.width / 2, 197);
+            ctx.fillText('Watch for stacked obstacles!', CONFIG.canvas.width / 2, 217);
 
             // Instructions
             ctx.font = 'bold 22px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 2, 241);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 2, 261);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 1, 242);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 1, 262);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2, 240);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2, 260);
 
             // Start instruction
             ctx.font = 'bold 18px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, 281);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, 301);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, 282);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, 302);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, 280);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, 300);
 
             // Mobile instruction
             ctx.font = 'bold 12px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('(or tap on mobile)', CONFIG.canvas.width / 2, 300);
+            ctx.fillText('(or tap on mobile)', CONFIG.canvas.width / 2, 320);
         }
 
         function drawGameOverScreen() {
