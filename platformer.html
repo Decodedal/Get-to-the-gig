@@ -194,6 +194,59 @@
             console.log('Logo image not found - will use solid background');
         };
 
+        // ============================================
+        // SPRITE LOADING
+        // ============================================
+
+        // Player animation sprites
+        const punkRunFrames = [];
+        let punkFramesLoaded = 0;
+        const totalPunkFrames = 8;
+
+        for (let i = 0; i < totalPunkFrames; i++) {
+            const img = new Image();
+            img.src = `assets/Punk_Run/run${i}.png`;
+            img.onload = () => {
+                punkFramesLoaded++;
+                if (punkFramesLoaded === totalPunkFrames) {
+                    console.log('Player sprites loaded');
+                }
+            };
+            img.onerror = () => {
+                console.log(`Failed to load run${i}.png`);
+            };
+            punkRunFrames.push(img);
+        }
+
+        // Cop sprite sheet
+        const copSprite = new Image();
+        copSprite.src = 'assets/Mobile - Dead Ahead - Enemies - Cop (1).png';
+        let copSpriteLoaded = false;
+        copSprite.onload = () => {
+            copSpriteLoaded = true;
+            console.log('Cop sprite loaded');
+        };
+        copSprite.onerror = () => {
+            console.log('Failed to load cop sprite');
+        };
+
+        // Trash can sprite
+        const trashCanSprite = new Image();
+        trashCanSprite.src = 'assets/trash-can/vecteezy_trash-can-pixel_10968225.jpg';
+        let trashCanLoaded = false;
+        trashCanSprite.onload = () => {
+            trashCanLoaded = true;
+            console.log('Trash can sprite loaded');
+        };
+        trashCanSprite.onerror = () => {
+            console.log('Failed to load trash can sprite');
+        };
+
+        // Animation state
+        let animationFrame = 0;
+        let animationCounter = 0;
+        const animationSpeed = 5; // Change frame every 5 game frames
+
         // Audio - select random song
         let backgroundMusic = null;
         let currentSongIndex = -1;
@@ -565,14 +618,36 @@
         }
 
         function drawPlayer() {
-            // Draw black outline
-            ctx.fillStyle = CONFIG.colors.playerOutline;
-            ctx.fillRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
+            // Update animation frame
+            if (gameState === 'playing') {
+                animationCounter++;
+                if (animationCounter >= animationSpeed) {
+                    animationCounter = 0;
+                    animationFrame = (animationFrame + 1) % totalPunkFrames;
+                }
+            }
 
-            // Draw player (flash when invulnerable)
-            if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
-                ctx.fillStyle = CONFIG.colors.player;
-                ctx.fillRect(player.x, player.y, player.width, player.height);
+            // Draw sprite if loaded, otherwise draw rectangle
+            if (punkFramesLoaded === totalPunkFrames && punkRunFrames[animationFrame].complete) {
+                // Draw player sprite (flash when invulnerable)
+                if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                    ctx.drawImage(
+                        punkRunFrames[animationFrame],
+                        player.x,
+                        player.y,
+                        player.width,
+                        player.height
+                    );
+                }
+            } else {
+                // Fallback to rectangle if sprites not loaded
+                ctx.fillStyle = CONFIG.colors.playerOutline;
+                ctx.fillRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
+
+                if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                    ctx.fillStyle = CONFIG.colors.player;
+                    ctx.fillRect(player.x, player.y, player.width, player.height);
+                }
             }
         }
 
@@ -580,32 +655,70 @@
             const obstacleConfig = CONFIG.obstacles[obstacle.type];
 
             if (obstacle.type === 'cop') {
-                // Draw triangle (cop - instant death!)
-                const centerX = obstacle.x + obstacle.width / 2;
-                const topY = obstacle.y;
-                const bottomY = obstacle.y + obstacle.height;
-                const leftX = obstacle.x;
-                const rightX = obstacle.x + obstacle.width;
+                // Draw cop sprite if loaded, otherwise triangle
+                if (copSpriteLoaded && copSprite.complete) {
+                    // Cop sprite sheet is 511x131, appears to have ~3-4 frames
+                    // Let's use the first frame (roughly 1/4 of the width)
+                    const frameWidth = 511 / 4;
+                    const frameHeight = 131;
 
-                // Draw outline
-                ctx.fillStyle = obstacleConfig.outline;
-                ctx.beginPath();
-                ctx.moveTo(centerX, topY - 3);
-                ctx.lineTo(rightX + 3, bottomY + 3);
-                ctx.lineTo(leftX - 3, bottomY + 3);
-                ctx.closePath();
-                ctx.fill();
+                    ctx.drawImage(
+                        copSprite,
+                        0, 0, // Source x, y (first frame)
+                        frameWidth, frameHeight, // Source width, height
+                        obstacle.x, obstacle.y, // Dest x, y
+                        obstacle.width, obstacle.height // Dest width, height
+                    );
+                } else {
+                    // Fallback: Draw triangle (cop - instant death!)
+                    const centerX = obstacle.x + obstacle.width / 2;
+                    const topY = obstacle.y;
+                    const bottomY = obstacle.y + obstacle.height;
+                    const leftX = obstacle.x;
+                    const rightX = obstacle.x + obstacle.width;
 
-                // Draw triangle
-                ctx.fillStyle = obstacle.color;
-                ctx.beginPath();
-                ctx.moveTo(centerX, topY);
-                ctx.lineTo(rightX, bottomY);
-                ctx.lineTo(leftX, bottomY);
-                ctx.closePath();
-                ctx.fill();
+                    // Draw outline
+                    ctx.fillStyle = obstacleConfig.outline;
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, topY - 3);
+                    ctx.lineTo(rightX + 3, bottomY + 3);
+                    ctx.lineTo(leftX - 3, bottomY + 3);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Draw triangle
+                    ctx.fillStyle = obstacle.color;
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, topY);
+                    ctx.lineTo(rightX, bottomY);
+                    ctx.lineTo(leftX, bottomY);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            } else if (obstacle.type === 'obstacle') {
+                // Draw trash can sprite if loaded, otherwise yellow square
+                if (trashCanLoaded && trashCanSprite.complete) {
+                    ctx.drawImage(
+                        trashCanSprite,
+                        obstacle.x, obstacle.y,
+                        obstacle.width, obstacle.height
+                    );
+                } else {
+                    // Fallback: Draw square
+                    ctx.fillStyle = obstacleConfig.outline;
+                    const outlineWidth = obstacleConfig.outlineWidth;
+                    ctx.fillRect(
+                        obstacle.x - outlineWidth,
+                        obstacle.y - outlineWidth,
+                        obstacle.width + (outlineWidth * 2),
+                        obstacle.height + (outlineWidth * 2)
+                    );
+
+                    ctx.fillStyle = obstacle.color;
+                    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                }
             } else {
-                // Draw square for fascists and obstacles
+                // Draw square for fascists
                 // Draw black outline
                 ctx.fillStyle = obstacleConfig.outline;
                 const outlineWidth = obstacleConfig.outlineWidth;
