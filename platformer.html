@@ -111,16 +111,27 @@
                     height: 50,
                     color: '#ffff00',
                     outline: '#000000',
-                    outlineWidth: 3
+                    outlineWidth: 3,
+                    isPlatform: true // Can be landed on
                 },
                 fascist: {
                     width: 40,
                     height: 40,
                     color: '#ff006e',
                     outline: '#000000',
-                    outlineWidth: 3
+                    outlineWidth: 3,
+                    isPlatform: true // Can be landed on
                 },
-                spawnDistance: 300, // Minimum distance between obstacles
+                triangle: {
+                    width: 40,
+                    height: 40,
+                    color: '#ff0000', // Bright red for danger
+                    outline: '#000000',
+                    outlineWidth: 3,
+                    isPlatform: false // Always dangerous
+                },
+                spawnDistance: 250, // Minimum distance between obstacles
+                maxSpawnDistance: 400, // Maximum distance for variety
                 initialSpeed: 4,
                 speedIncrease: 0.0005 // Speed increase per frame
             },
@@ -176,7 +187,9 @@
             height: CONFIG.player.height,
             velocityY: 0,
             isJumping: false,
-            isOnGround: true
+            isOnGround: true,
+            isOnPlatform: false,
+            currentPlatform: null
         };
 
         // Game data
@@ -189,23 +202,71 @@
         // ============================================
         // OBSTACLE MANAGEMENT
         // ============================================
-        function createObstacle(type) {
+        function createObstacle(type, heightLevel = 0) {
             const obstacleConfig = CONFIG.obstacles[type];
+            // Height levels: 0 = ground, 1 = medium, 2 = high
+            const yOffset = heightLevel * 60; // Stack height for platforms
+
             return {
                 type: type,
                 x: CONFIG.canvas.width,
-                y: CONFIG.ground.y - obstacleConfig.height,
+                y: CONFIG.ground.y - obstacleConfig.height - yOffset,
                 width: obstacleConfig.width,
                 height: obstacleConfig.height,
-                color: obstacleConfig.color
+                color: obstacleConfig.color,
+                isPlatform: obstacleConfig.isPlatform,
+                heightLevel: heightLevel
             };
         }
 
         function spawnObstacle() {
-            // Randomly choose obstacle type
-            const types = ['cop', 'fascist'];
-            const randomType = types[Math.floor(Math.random() * types.length)];
-            obstacles.push(createObstacle(randomType));
+            // Difficulty increases over time
+            const difficultyLevel = Math.floor(distance / 50); // Increases every 50m
+
+            // Calculate spawn probabilities based on difficulty
+            let types = ['cop', 'fascist', 'triangle'];
+            let weights = [30, 30, 20]; // Start with fewer triangles
+
+            // As difficulty increases, add more triangles and complexity
+            if (difficultyLevel > 2) {
+                weights = [25, 25, 35]; // More triangles
+            }
+            if (difficultyLevel > 5) {
+                weights = [20, 20, 50]; // Even more triangles
+            }
+
+            // Weighted random selection
+            const totalWeight = weights.reduce((a, b) => a + b, 0);
+            let random = Math.random() * totalWeight;
+            let randomType = types[0];
+
+            for (let i = 0; i < types.length; i++) {
+                if (random < weights[i]) {
+                    randomType = types[i];
+                    break;
+                }
+                random -= weights[i];
+            }
+
+            // Platforms can be at different heights (but not triangles)
+            let heightLevel = 0;
+            if (randomType !== 'triangle' && difficultyLevel > 1) {
+                // Occasionally spawn platforms at higher levels
+                const heightChance = Math.random();
+                if (heightChance < 0.2 && difficultyLevel > 3) {
+                    heightLevel = 2; // High platform
+                } else if (heightChance < 0.4) {
+                    heightLevel = 1; // Medium platform
+                }
+            }
+
+            obstacles.push(createObstacle(randomType, heightLevel));
+
+            // Sometimes spawn stacked obstacles for more challenge
+            if (difficultyLevel > 4 && Math.random() < 0.15) {
+                const stackType = Math.random() < 0.5 ? 'cop' : 'fascist';
+                obstacles.push(createObstacle(stackType, 1));
+            }
         }
 
         function updateObstacles() {
@@ -217,12 +278,18 @@
             // Remove off-screen obstacles
             obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
 
-            // Spawn new obstacles
+            // Spawn new obstacles with dynamic spacing
             const rightmostObstacle = obstacles.length > 0
                 ? Math.max(...obstacles.map(o => o.x))
                 : 0;
 
-            if (rightmostObstacle < CONFIG.canvas.width - CONFIG.obstacles.spawnDistance) {
+            // Variable spawn distance based on difficulty
+            const difficultyLevel = Math.floor(distance / 50);
+            const minDistance = Math.max(150, CONFIG.obstacles.spawnDistance - (difficultyLevel * 10));
+            const maxDistance = Math.max(minDistance + 50, CONFIG.obstacles.maxSpawnDistance - (difficultyLevel * 15));
+            const spawnDistance = minDistance + Math.random() * (maxDistance - minDistance);
+
+            if (rightmostObstacle < CONFIG.canvas.width - spawnDistance) {
                 spawnObstacle();
             }
         }
@@ -231,13 +298,24 @@
         // PLAYER PHYSICS
         // ============================================
         function updatePlayer() {
-            // Apply gravity
-            if (!player.isOnGround) {
+            // Apply gravity if not on ground or platform
+            if (!player.isOnGround && !player.isOnPlatform) {
                 player.velocityY += CONFIG.player.gravity;
 
                 // Cap fall speed
                 if (player.velocityY > CONFIG.player.maxFallSpeed) {
                     player.velocityY = CONFIG.player.maxFallSpeed;
+                }
+            }
+
+            // If on platform, check if still above it
+            if (player.isOnPlatform && player.currentPlatform) {
+                const platform = player.currentPlatform;
+                // Check if player moved off the platform horizontally
+                if (player.x + player.width < platform.x || player.x > platform.x + platform.width) {
+                    player.isOnPlatform = false;
+                    player.currentPlatform = null;
+                    player.velocityY = 0; // Start falling
                 }
             }
 
@@ -250,21 +328,25 @@
                 player.velocityY = 0;
                 player.isJumping = false;
                 player.isOnGround = true;
+                player.isOnPlatform = false;
+                player.currentPlatform = null;
             } else {
                 player.isOnGround = false;
             }
         }
 
         function jump() {
-            if (player.isOnGround && !player.isJumping) {
+            if ((player.isOnGround || player.isOnPlatform) && !player.isJumping) {
                 player.velocityY = CONFIG.player.jumpForce;
                 player.isJumping = true;
                 player.isOnGround = false;
+                player.isOnPlatform = false;
+                player.currentPlatform = null;
             }
         }
 
         // ============================================
-        // COLLISION DETECTION (AABB)
+        // COLLISION DETECTION (AABB with platform support)
         // ============================================
         function checkCollision(rect1, rect2) {
             return rect1.x < rect2.x + rect2.width &&
@@ -273,10 +355,59 @@
                    rect1.y + rect1.height > rect2.y;
         }
 
+        function checkPlatformLanding(player, platform) {
+            // Check if player is falling onto the platform from above
+            const wasAbove = player.y + player.height - player.velocityY <= platform.y + 5;
+            const isOnTop = player.y + player.height >= platform.y &&
+                           player.y + player.height <= platform.y + platform.height / 2;
+            const horizontalOverlap = player.x < platform.x + platform.width &&
+                                     player.x + player.width > platform.x;
+
+            return wasAbove && isOnTop && horizontalOverlap && player.velocityY >= 0;
+        }
+
+        function checkSideCollision(player, obstacle) {
+            // Check if player is hitting the sides or bottom of obstacle
+            const horizontalOverlap = player.x < obstacle.x + obstacle.width &&
+                                     player.x + player.width > obstacle.x;
+            const verticalOverlap = player.y < obstacle.y + obstacle.height &&
+                                   player.y + player.height > obstacle.y;
+
+            if (!horizontalOverlap || !verticalOverlap) return false;
+
+            // Determine collision side
+            const fromLeft = player.x + player.width - player.velocityY <= obstacle.x + 10;
+            const fromRight = player.x >= obstacle.x + obstacle.width - 10;
+            const fromBottom = player.y <= obstacle.y + obstacle.height - 10;
+
+            return fromLeft || fromRight || fromBottom;
+        }
+
         function checkCollisions() {
+            player.isOnPlatform = false;
+            player.currentPlatform = null;
+
             for (let obstacle of obstacles) {
-                if (checkCollision(player, obstacle)) {
-                    return true;
+                // Triangles always hurt
+                if (obstacle.type === 'triangle') {
+                    if (checkCollision(player, obstacle)) {
+                        return true; // Game over
+                    }
+                }
+                // Platforms can be landed on
+                else if (obstacle.isPlatform) {
+                    if (checkPlatformLanding(player, obstacle)) {
+                        // Land on platform
+                        player.y = obstacle.y - player.height;
+                        player.velocityY = 0;
+                        player.isOnGround = false;
+                        player.isOnPlatform = true;
+                        player.currentPlatform = obstacle;
+                        player.isJumping = false;
+                    } else if (checkCollision(player, obstacle)) {
+                        // Hit from side or bottom - game over
+                        return true;
+                    }
                 }
             }
             return false;
@@ -341,19 +472,47 @@
         function drawObstacle(obstacle) {
             const obstacleConfig = CONFIG.obstacles[obstacle.type];
 
-            // Draw black outline
-            ctx.fillStyle = obstacleConfig.outline;
-            const outlineWidth = obstacleConfig.outlineWidth;
-            ctx.fillRect(
-                obstacle.x - outlineWidth,
-                obstacle.y - outlineWidth,
-                obstacle.width + (outlineWidth * 2),
-                obstacle.height + (outlineWidth * 2)
-            );
+            if (obstacle.type === 'triangle') {
+                // Draw triangle (pointing up - dangerous!)
+                const centerX = obstacle.x + obstacle.width / 2;
+                const topY = obstacle.y;
+                const bottomY = obstacle.y + obstacle.height;
+                const leftX = obstacle.x;
+                const rightX = obstacle.x + obstacle.width;
 
-            // Draw obstacle
-            ctx.fillStyle = obstacle.color;
-            ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                // Draw outline
+                ctx.fillStyle = obstacleConfig.outline;
+                ctx.beginPath();
+                ctx.moveTo(centerX, topY - 3);
+                ctx.lineTo(rightX + 3, bottomY + 3);
+                ctx.lineTo(leftX - 3, bottomY + 3);
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw triangle
+                ctx.fillStyle = obstacle.color;
+                ctx.beginPath();
+                ctx.moveTo(centerX, topY);
+                ctx.lineTo(rightX, bottomY);
+                ctx.lineTo(leftX, bottomY);
+                ctx.closePath();
+                ctx.fill();
+            } else {
+                // Draw rectangle/square for platforms
+                // Draw black outline
+                ctx.fillStyle = obstacleConfig.outline;
+                const outlineWidth = obstacleConfig.outlineWidth;
+                ctx.fillRect(
+                    obstacle.x - outlineWidth,
+                    obstacle.y - outlineWidth,
+                    obstacle.width + (outlineWidth * 2),
+                    obstacle.height + (outlineWidth * 2)
+                );
+
+                // Draw obstacle
+                ctx.fillStyle = obstacle.color;
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            }
         }
 
         function drawObstacles() {
@@ -374,6 +533,23 @@
 
             ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.fillText(distanceText, 20, 30);
+
+            // Difficulty level indicator
+            const difficultyLevel = Math.floor(distance / 50);
+            const difficultyText = `Level: ${difficultyLevel}`;
+
+            ctx.fillStyle = CONFIG.colors.ui.shadow;
+            ctx.fillText(difficultyText, 21, 56);
+
+            // Color based on difficulty
+            if (difficultyLevel < 3) {
+                ctx.fillStyle = CONFIG.colors.ui.text; // Green - easy
+            } else if (difficultyLevel < 6) {
+                ctx.fillStyle = '#ffff00'; // Yellow - medium
+            } else {
+                ctx.fillStyle = CONFIG.colors.ui.accent; // Pink - hard
+            }
+            ctx.fillText(difficultyText, 20, 55);
         }
 
         function drawStartScreen() {
@@ -385,25 +561,41 @@
 
             // Title with glitchy outline effect
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 3, CONFIG.canvas.height / 2 - 47);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 3, 77);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 48);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 2, 76);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 50);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2, 75);
+
+            // Game instructions
+            ctx.font = 'bold 16px Courier New';
+            ctx.fillStyle = CONFIG.colors.ui.text;
+            ctx.fillText('Red Triangles: Always Deadly!', CONFIG.canvas.width / 2, 130);
+            ctx.fillText('Yellow/Pink Platforms: Land on Top!', CONFIG.canvas.width / 2, 150);
+            ctx.fillText('Difficulty increases over time...', CONFIG.canvas.width / 2, 170);
 
             // Instructions
             ctx.font = 'bold 24px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.accent;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 21);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 2, 221);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, CONFIG.canvas.height / 2 + 22);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2 + 1, 222);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 20);
+            ctx.fillText('Press SPACE to Jump', CONFIG.canvas.width / 2, 220);
+
+            // Start instruction
+            ctx.font = 'bold 20px Courier New';
+            ctx.fillStyle = CONFIG.colors.ui.accent;
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, 271);
+            ctx.fillStyle = CONFIG.colors.ui.shadow;
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, 272);
+            ctx.fillStyle = CONFIG.colors.ui.text;
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, 270);
 
             // Mobile instruction
-            ctx.font = 'bold 16px Courier New';
+            ctx.font = 'bold 14px Courier New';
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('(or tap on mobile)', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 50);
+            ctx.fillText('(or tap on mobile)', CONFIG.canvas.width / 2, 295);
         }
 
         function drawGameOverScreen() {
@@ -457,6 +649,8 @@
             player.velocityY = 0;
             player.isJumping = false;
             player.isOnGround = true;
+            player.isOnPlatform = false;
+            player.currentPlatform = null;
 
             // Reset game data
             obstacles = [];
@@ -465,8 +659,8 @@
             frameCount = 0;
             lastObstacleX = CONFIG.canvas.width;
 
-            // Spawn initial obstacles
-            obstacles.push(createObstacle('cop'));
+            // Spawn initial obstacles (start easy with platforms)
+            obstacles.push(createObstacle('cop', 0));
         }
 
         function startGame() {
