@@ -17,13 +17,13 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background: #1a1a2e;
+            background: #0a0a0a;
             font-family: 'Courier New', monospace;
         }
 
         #gameCanvas {
-            border: 2px solid #16213e;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            border: 3px solid #ff006e;
+            box-shadow: 0 0 30px rgba(255, 0, 110, 0.5), 0 0 10px rgba(0, 255, 0, 0.3);
             display: block;
             touch-action: none;
         }
@@ -47,22 +47,44 @@
                 height: 400
             },
 
-            // Colors
+            // Colors - Punk Aesthetic
             colors: {
                 background: {
-                    top: '#0f3460',
-                    bottom: '#16213e'
+                    base: '#0a0a0a',        // Deep black
+                    overlay: '#1a1a1a'      // Slightly lighter for pattern
                 },
-                ground: '#e94560',
-                player: '#00d9ff',
+                ground: '#ff006e',          // Hot pink
+                player: '#00ff41',          // Neon green
+                playerOutline: '#000000',   // Black outline
                 obstacles: {
-                    cop: '#ff6b6b',
-                    fascist: '#8b4513'
+                    cop: '#ffff00',         // Bright yellow
+                    copOutline: '#000000',
+                    fascist: '#ff006e',     // Hot pink
+                    fascistOutline: '#000000'
                 },
                 ui: {
-                    text: '#ffffff',
-                    shadow: '#000000'
+                    text: '#00ff41',        // Neon green
+                    shadow: '#000000',
+                    accent: '#ff006e'       // Hot pink accent
+                },
+                effects: {
+                    scanline: 'rgba(0, 0, 0, 0.1)',
+                    vignette: 'rgba(0, 0, 0, 0.7)'
                 }
+            },
+
+            // Visual Effects
+            effects: {
+                scanlines: true,
+                scanlineSpacing: 4,
+                logoPattern: true,
+                logoOpacity: 0.15,
+                logoSize: 100  // Size of each logo tile
+            },
+
+            // Assets
+            assets: {
+                logoPath: 'path/to/your/logo.png' // User will replace this
             },
 
             // Player
@@ -87,12 +109,16 @@
                 cop: {
                     width: 30,
                     height: 50,
-                    color: '#ff6b6b'
+                    color: '#ffff00',
+                    outline: '#000000',
+                    outlineWidth: 3
                 },
                 fascist: {
                     width: 40,
                     height: 40,
-                    color: '#8b4513'
+                    color: '#ff006e',
+                    outline: '#000000',
+                    outlineWidth: 3
                 },
                 spawnDistance: 300, // Minimum distance between obstacles
                 initialSpeed: 4,
@@ -125,6 +151,17 @@
         // Game state
         let gameState = 'start'; // 'start', 'playing', 'gameOver'
         let animationId = null;
+
+        // Logo image for background pattern
+        const logoImage = new Image();
+        logoImage.src = CONFIG.assets.logoPath;
+        let logoLoaded = false;
+        logoImage.onload = () => {
+            logoLoaded = true;
+        };
+        logoImage.onerror = () => {
+            console.log('Logo image not found - will use solid background');
+        };
 
         // Audio
         const backgroundMusic = new Audio(CONFIG.audio.musicPath);
@@ -249,10 +286,39 @@
         // RENDERING FUNCTIONS
         // ============================================
         function drawBackground() {
-            // Gradient background
-            const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.canvas.height);
-            gradient.addColorStop(0, CONFIG.colors.background.top);
-            gradient.addColorStop(1, CONFIG.colors.background.bottom);
+            // Solid black background
+            ctx.fillStyle = CONFIG.colors.background.base;
+            ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+
+            // Draw repeating logo pattern if loaded
+            if (CONFIG.effects.logoPattern && logoLoaded) {
+                ctx.globalAlpha = CONFIG.effects.logoOpacity;
+                const logoSize = CONFIG.effects.logoSize;
+
+                for (let x = 0; x < CONFIG.canvas.width; x += logoSize) {
+                    for (let y = 0; y < CONFIG.canvas.height; y += logoSize) {
+                        ctx.drawImage(logoImage, x, y, logoSize, logoSize);
+                    }
+                }
+
+                ctx.globalAlpha = 1.0;
+            }
+
+            // Scanlines effect for gritty punk aesthetic
+            if (CONFIG.effects.scanlines) {
+                ctx.fillStyle = CONFIG.colors.effects.scanline;
+                for (let i = 0; i < CONFIG.canvas.height; i += CONFIG.effects.scanlineSpacing) {
+                    ctx.fillRect(0, i, CONFIG.canvas.width, 2);
+                }
+            }
+
+            // Subtle vignette effect
+            const gradient = ctx.createRadialGradient(
+                CONFIG.canvas.width / 2, CONFIG.canvas.height / 2, 0,
+                CONFIG.canvas.width / 2, CONFIG.canvas.height / 2, CONFIG.canvas.width / 1.5
+            );
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            gradient.addColorStop(1, CONFIG.colors.effects.vignette);
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
         }
@@ -263,11 +329,29 @@
         }
 
         function drawPlayer() {
+            // Draw black outline
+            ctx.fillStyle = CONFIG.colors.playerOutline;
+            ctx.fillRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
+
+            // Draw player
             ctx.fillStyle = CONFIG.colors.player;
             ctx.fillRect(player.x, player.y, player.width, player.height);
         }
 
         function drawObstacle(obstacle) {
+            const obstacleConfig = CONFIG.obstacles[obstacle.type];
+
+            // Draw black outline
+            ctx.fillStyle = obstacleConfig.outline;
+            const outlineWidth = obstacleConfig.outlineWidth;
+            ctx.fillRect(
+                obstacle.x - outlineWidth,
+                obstacle.y - outlineWidth,
+                obstacle.width + (outlineWidth * 2),
+                obstacle.height + (outlineWidth * 2)
+            );
+
+            // Draw obstacle
             ctx.fillStyle = obstacle.color;
             ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
         }
@@ -296,20 +380,23 @@
             drawBackground();
             drawGround();
 
-            ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.font = 'bold 40px Courier New';
             ctx.textAlign = 'center';
 
-            // Title
+            // Title with glitchy outline effect
+            ctx.fillStyle = CONFIG.colors.ui.accent;
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 3, CONFIG.canvas.height / 2 - 47);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('PLATFORMER', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 48);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 48);
             ctx.fillStyle = CONFIG.colors.ui.text;
-            ctx.fillText('PLATFORMER', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 50);
+            ctx.fillText('GET TO THE GIG', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 50);
 
             // Instructions
             ctx.font = 'bold 24px Courier New';
+            ctx.fillStyle = CONFIG.colors.ui.accent;
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 21);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 22);
+            ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2 + 1, CONFIG.canvas.height / 2 + 22);
             ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.fillText('Press SPACE to Start', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 20);
 
@@ -323,26 +410,31 @@
             drawBackground();
             drawGround();
 
-            ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.font = 'bold 40px Courier New';
             ctx.textAlign = 'center';
 
-            // Game Over text
+            // Game Over text with glitch effect
+            ctx.fillStyle = CONFIG.colors.ui.accent;
+            ctx.fillText('GAME OVER', CONFIG.canvas.width / 2 + 3, CONFIG.canvas.height / 2 - 47);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
             ctx.fillText('GAME OVER', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 - 48);
-            ctx.fillStyle = '#e94560';
+            ctx.fillStyle = CONFIG.colors.ui.accent;
             ctx.fillText('GAME OVER', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 50);
 
             // Distance
             ctx.font = 'bold 24px Courier New';
-            ctx.fillStyle = CONFIG.colors.ui.text;
+            ctx.fillStyle = CONFIG.colors.ui.shadow;
             const distanceText = `Distance: ${Math.floor(distance)}m`;
+            ctx.fillText(distanceText, CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 2);
+            ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.fillText(distanceText, CONFIG.canvas.width / 2, CONFIG.canvas.height / 2);
 
             // Restart instruction
             ctx.font = 'bold 20px Courier New';
+            ctx.fillStyle = CONFIG.colors.ui.accent;
+            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 51);
             ctx.fillStyle = CONFIG.colors.ui.shadow;
-            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 2, CONFIG.canvas.height / 2 + 52);
+            ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2 + 1, CONFIG.canvas.height / 2 + 52);
             ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.fillText('Press SPACE to Restart', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 50);
         }
