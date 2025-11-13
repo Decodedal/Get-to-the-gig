@@ -264,20 +264,29 @@
             // Create base obstacle at ground level
             obstacles.push(createObstacle(randomType, 0));
 
-            // Create stacked sequences (only for platforms, not cops)
-            if (randomType === 'obstacle' || randomType === 'fascist') {
+            // STACKING LOGIC: Objects on bottom, people on top
+            // Cops (triangles) never stack - they're instant death obstacles
+
+            if (randomType === 'obstacle' && difficultyLevel > 1) {
+                // Yellow obstacle (trash can, etc.) - can have fascists standing on top
                 const stackChance = Math.random();
 
-                // 30% chance for 2-high stack
-                if (stackChance < 0.3 && difficultyLevel > 1) {
-                    const stackType = Math.random() < 0.5 ? 'obstacle' : 'fascist';
-                    obstacles.push(createObstacle(stackType, 1));
+                // 30% chance for a fascist standing on the obstacle
+                if (stackChance < 0.3) {
+                    obstacles.push(createObstacle('fascist', 1));
 
-                    // 15% chance for 3-high stack (requires jumping on first to reach)
-                    if (stackChance < 0.15 && difficultyLevel > 3) {
-                        const stack3Type = Math.random() < 0.3 ? 'fascist' : 'obstacle';
-                        obstacles.push(createObstacle(stack3Type, 2));
+                    // 10% chance for another fascist stacked even higher
+                    if (stackChance < 0.1 && difficultyLevel > 3) {
+                        obstacles.push(createObstacle('fascist', 2));
                     }
+                }
+            } else if (randomType === 'fascist' && difficultyLevel > 2) {
+                // Fascist on ground - can have another fascist on top (piggyback)
+                const stackChance = Math.random();
+
+                // 20% chance for stacked fascists
+                if (stackChance < 0.2) {
+                    obstacles.push(createObstacle('fascist', 1));
                 }
             }
         }
