@@ -58,7 +58,8 @@
                 groundY: 450, // Y position when on ground
                 jumpForce: -15,
                 gravity: 0.65,
-                maxFallSpeed: 18
+                maxFallSpeed: 18,
+                jumpCutMultiplier: 0.4 // Multiply upward velocity by this when jump key released early
             },
 
             // Ground
@@ -190,6 +191,7 @@
         // Game state
         let gameState = 'start'; // 'start', 'playing', 'gameOver'
         let animationId = null;
+        let jumpKeyHeld = false; // Track if jump key/touch is being held
 
         // Logo image for background pattern
         const logoImage = new Image();
@@ -596,7 +598,16 @@
                 player.isOnGround = false;
                 player.isOnPlatform = false;
                 player.currentPlatform = null;
+                jumpKeyHeld = true; // Mark that jump key is being held
             }
+        }
+
+        function releaseJump() {
+            // Cut the jump short if player is still moving upward
+            if (jumpKeyHeld && player.velocityY < 0) {
+                player.velocityY *= CONFIG.player.jumpCutMultiplier;
+            }
+            jumpKeyHeld = false;
         }
 
         // ============================================
@@ -1368,6 +1379,13 @@
             }
         });
 
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                releaseJump();
+            }
+        });
+
         // Touch/Click input
         canvas.addEventListener('click', () => {
             handleInput();
@@ -1376,6 +1394,11 @@
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             handleInput();
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            releaseJump();
         });
 
         // ============================================
