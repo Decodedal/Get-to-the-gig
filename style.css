@@ -70,3 +70,49 @@ body {
 .hidden {
     display: none;
 }
+
+/* Rotate message styling */
+#rotate-message {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.95);
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    color: #fff;
+    text-align: center;
+    padding: 20px;
+}
+
+#rotate-message .rotate-icon {
+    font-size: 80px;
+    margin-bottom: 20px;
+    animation: rotate-pulse 2s ease-in-out infinite;
+}
+
+#rotate-message p {
+    font-size: 20px;
+    font-weight: bold;
+    color: #b8bb0d;
+}
+
+@keyframes rotate-pulse {
+    0%, 100% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(90deg) scale(1.2); }
+}
+
+/* Show rotate message only on mobile in portrait mode */
+@media screen and (max-width: 900px) and (orientation: portrait) {
+    #rotate-message {
+        display: flex;
+    }
+
+    #gameCanvas {
+        display: none;
+    }
+}
