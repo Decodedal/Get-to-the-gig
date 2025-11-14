@@ -50,8 +50,10 @@
 
             // Player
             player: {
-                width: 30, // Reduced for narrower hitbox
+                width: 60, // Visual width
                 height: 80,
+                hitboxWidth: 30, // Narrower hitbox for collision
+                hitboxOffset: 15, // Center the hitbox
                 x: 150, // Fixed x position (centered-ish)
                 groundY: 450, // Y position when on ground
                 jumpForce: -15,
@@ -69,8 +71,10 @@
             obstacles: {
                 fireCan: {
                     // Burning trash can - instant death
-                    width: 22, // Reduced for narrower hitbox
+                    width: 40, // Visual width
                     height: 60,
+                    hitboxWidth: 22, // Narrower hitbox
+                    hitboxOffset: 9, // Center the hitbox
                     color: '#ff6600', // Orange/red
                     outline: '#000000',
                     outlineWidth: 2,
@@ -79,8 +83,12 @@
                 },
                 cop: {
                     // Cop sprites - can jump on to destroy, or take damage
-                    width: 30, // Reduced for narrower hitbox
+                    width: 60, // Visual width
                     height: 80,
+                    hitboxWidth: 30, // Narrower hitbox
+                    hitboxOffset: 15, // Center the hitbox
+                    hitboxHeight: 70, // Slightly shorter hitbox from top
+                    hitboxTopOffset: 10, // Start hitbox lower from top
                     color: '#00ff41', // Neon green (cop uniform) - fallback
                     outline: '#000000',
                     outlineWidth: 3,
@@ -91,8 +99,12 @@
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
-                    width: 25, // Reduced for narrower hitbox
+                    width: 45, // Visual width
                     height: 60,
+                    hitboxWidth: 25, // Narrower hitbox
+                    hitboxOffset: 10, // Center the hitbox
+                    hitboxHeight: 50, // Slightly shorter hitbox from top
+                    hitboxTopOffset: 10, // Start hitbox lower from top
                     color: '#ffff00', // Yellow
                     outline: '#000000',
                     outlineWidth: 3,
@@ -109,15 +121,15 @@
             powerups: {
                 weed: {
                     // Health replenishment
-                    width: 40,
-                    height: 40,
+                    width: 60,
+                    height: 60,
                     healthRestore: 1,
                     spawnChance: 0.015 // 1.5% chance per frame when eligible
                 },
                 git: {
                     // Invincibility + speed boost
-                    width: 40,
-                    height: 40,
+                    width: 60,
+                    height: 60,
                     duration: 240, // 4 seconds at 60fps (3-5 seconds range)
                     speedMultiplier: 3,
                     spawnChance: 0.008 // 0.8% chance per frame when eligible
@@ -381,6 +393,10 @@
                 y: CONFIG.ground.y - obstacleConfig.height - yOffset,
                 width: obstacleConfig.width,
                 height: obstacleConfig.height,
+                hitboxWidth: obstacleConfig.hitboxWidth || obstacleConfig.width,
+                hitboxOffset: obstacleConfig.hitboxOffset || 0,
+                hitboxHeight: obstacleConfig.hitboxHeight || obstacleConfig.height,
+                hitboxTopOffset: obstacleConfig.hitboxTopOffset || 0,
                 color: obstacleConfig.color,
                 isPlatform: obstacleConfig.isPlatform,
                 heightLevel: heightLevel,
@@ -554,8 +570,12 @@
         }
 
         function jump() {
-            // Allow jumping immediately when on ground or platform (removed isJumping check)
-            if (player.isOnGround || player.isOnPlatform) {
+            // Allow jumping if on ground/platform OR if falling/stopped (not rising)
+            // This allows immediate jumping upon landing without waiting for flags to update
+            const canJump = player.isOnGround || player.isOnPlatform ||
+                           (player.velocityY >= -0.5); // Not rising significantly
+
+            if (canJump) {
                 player.velocityY = CONFIG.player.jumpForce;
                 player.isJumping = true;
                 player.isOnGround = false;
@@ -567,37 +587,72 @@
         // ============================================
         // COLLISION DETECTION (AABB with platform support)
         // ============================================
+
+        // Helper function to get hitbox for player
+        function getPlayerHitbox() {
+            return {
+                x: player.x + CONFIG.player.hitboxOffset,
+                y: player.y,
+                width: CONFIG.player.hitboxWidth,
+                height: player.height
+            };
+        }
+
+        // Helper function to get hitbox for obstacle
+        function getObstacleHitbox(obstacle) {
+            return {
+                x: obstacle.x + (obstacle.hitboxOffset || 0),
+                y: obstacle.y + (obstacle.hitboxTopOffset || 0),
+                width: obstacle.hitboxWidth || obstacle.width,
+                height: obstacle.hitboxHeight || obstacle.height
+            };
+        }
+
         function checkCollision(rect1, rect2) {
-            return rect1.x < rect2.x + rect2.width &&
-                   rect1.x + rect1.width > rect2.x &&
-                   rect1.y < rect2.y + rect2.height &&
-                   rect1.y + rect1.height > rect2.y;
+            // If rect1 is player or obstacle, use hitbox
+            const hitbox1 = rect1 === player ? getPlayerHitbox() :
+                           (rect1.hitboxWidth ? getObstacleHitbox(rect1) : rect1);
+            const hitbox2 = rect2 === player ? getPlayerHitbox() :
+                           (rect2.hitboxWidth ? getObstacleHitbox(rect2) : rect2);
+
+            return hitbox1.x < hitbox2.x + hitbox2.width &&
+                   hitbox1.x + hitbox1.width > hitbox2.x &&
+                   hitbox1.y < hitbox2.y + hitbox2.height &&
+                   hitbox1.y + hitbox1.height > hitbox2.y;
         }
 
         function checkPlatformLanding(player, platform) {
+            // Use hitboxes for more accurate collision
+            const playerHitbox = getPlayerHitbox();
+            const platformHitbox = getObstacleHitbox(platform);
+
             // Check if player is falling onto the platform from above
-            const wasAbove = player.y + player.height - player.velocityY <= platform.y + 5;
-            const isOnTop = player.y + player.height >= platform.y &&
-                           player.y + player.height <= platform.y + platform.height / 2;
-            const horizontalOverlap = player.x < platform.x + platform.width &&
-                                     player.x + player.width > platform.x;
+            const wasAbove = playerHitbox.y + playerHitbox.height - player.velocityY <= platformHitbox.y + 5;
+            const isOnTop = playerHitbox.y + playerHitbox.height >= platformHitbox.y &&
+                           playerHitbox.y + playerHitbox.height <= platformHitbox.y + platformHitbox.height / 2;
+            const horizontalOverlap = playerHitbox.x < platformHitbox.x + platformHitbox.width &&
+                                     playerHitbox.x + playerHitbox.width > platformHitbox.x;
 
             return wasAbove && isOnTop && horizontalOverlap && player.velocityY >= 0;
         }
 
         function checkSideCollision(player, obstacle) {
+            // Use hitboxes for more accurate collision
+            const playerHitbox = getPlayerHitbox();
+            const obstacleHitbox = getObstacleHitbox(obstacle);
+
             // Check if player is hitting the sides or bottom of obstacle
-            const horizontalOverlap = player.x < obstacle.x + obstacle.width &&
-                                     player.x + player.width > obstacle.x;
-            const verticalOverlap = player.y < obstacle.y + obstacle.height &&
-                                   player.y + player.height > obstacle.y;
+            const horizontalOverlap = playerHitbox.x < obstacleHitbox.x + obstacleHitbox.width &&
+                                     playerHitbox.x + playerHitbox.width > obstacleHitbox.x;
+            const verticalOverlap = playerHitbox.y < obstacleHitbox.y + obstacleHitbox.height &&
+                                   playerHitbox.y + playerHitbox.height > obstacleHitbox.y;
 
             if (!horizontalOverlap || !verticalOverlap) return false;
 
             // Determine collision side
-            const fromLeft = player.x + player.width - player.velocityY <= obstacle.x + 10;
-            const fromRight = player.x >= obstacle.x + obstacle.width - 10;
-            const fromBottom = player.y <= obstacle.y + obstacle.height - 10;
+            const fromLeft = playerHitbox.x + playerHitbox.width - player.velocityY <= obstacleHitbox.x + 10;
+            const fromRight = playerHitbox.x >= obstacleHitbox.x + obstacleHitbox.width - 10;
+            const fromBottom = playerHitbox.y <= obstacleHitbox.y + obstacleHitbox.height - 10;
 
             return fromLeft || fromRight || fromBottom;
         }
@@ -674,8 +729,9 @@
                 // Platforms and cops can be landed on
                 else if (obstacleConfig.isPlatform) {
                     if (checkPlatformLanding(player, obstacle)) {
-                        // Land on platform
-                        player.y = obstacle.y - player.height;
+                        // Land on platform - use hitbox y position for more accurate landing
+                        const obstacleHitbox = getObstacleHitbox(obstacle);
+                        player.y = obstacleHitbox.y - player.height;
                         player.velocityY = 0;
                         player.isOnGround = false;
                         player.isOnPlatform = true;
