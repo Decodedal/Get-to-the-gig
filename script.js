@@ -69,7 +69,7 @@
             obstacles: {
                 fireCan: {
                     // Burning trash can - instant death
-                    width: 60,
+                    width: 40,
                     height: 60,
                     color: '#ff6600', // Orange/red
                     outline: '#000000',
@@ -80,7 +80,7 @@
                 cop: {
                     // Cop sprites - can jump on to destroy, or take damage
                     width: 60,
-                    height: 90,
+                    height: 80,
                     color: '#00ff41', // Neon green (cop uniform) - fallback
                     outline: '#000000',
                     outlineWidth: 3,
@@ -91,7 +91,7 @@
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
-                    width: 60,
+                    width: 45,
                     height: 60,
                     color: '#ffff00', // Yellow
                     outline: '#000000',
