@@ -14,7 +14,7 @@
                     base: '#0a0a0a',        // Deep black
                     overlay: '#1a1a1a'      // Slightly lighter for pattern
                 },
-                ground: '#ff006e',          // Hot pink
+                ground: '#000000ff',          // Hot pink
                 player: '#00ff41',          // Neon green
                 playerOutline: '#000000',   // Black outline
                 obstacles: {
@@ -79,18 +79,15 @@
                 },
                 cop: {
                     // Cop sprites - can jump on to destroy, or take damage
-                    width: 85,
-                    height: 131,
+                    width: 60,
+                    height: 90,
                     color: '#00ff41', // Neon green (cop uniform) - fallback
                     outline: '#000000',
                     outlineWidth: 3,
                     isPlatform: true, // Can land on top to destroy
                     isDestructible: true,
                     damageOnSide: true,
-                    pointValue: 10,
-                    frameCount: 1, // Use only the first frame of cop sprite sheet
-                    frameWidth: 85.16, // 511 / 6
-                    frameHeight: 131
+                    pointValue: 10
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
@@ -184,7 +181,7 @@
 
         // Cop sprite sheet
         const copSprite = new Image();
-        copSprite.src = 'assets/Mobile - Dead Ahead - Enemies - Cop (1).png';
+        copSprite.src = 'assets/policeman_walk_gif (256×256).gif';
         let copSpriteLoaded = false;
         copSprite.onload = () => {
             copSpriteLoaded = true;
@@ -222,11 +219,6 @@
         let animationFrame = 0;
         let animationCounter = 0;
         const animationSpeed = 5; // Change frame every 5 game frames
-
-        // Cop animation state
-        let copAnimationFrame = 0;
-        let copAnimationCounter = 0;
-        const copAnimationSpeed = 8; // Slower animation for cops
 
         // Audio - select random song
         let backgroundMusic = null;
@@ -345,16 +337,26 @@
             // Fire cans never stack - they're instant death obstacles
 
             if (randomType === 'obstacle' && difficultyLevel > 1) {
-                // Yellow obstacle (trash can, etc.) - can have cops standing on top
+                // Yellow obstacle (trash can, etc.) - can have stacks
                 const stackChance = Math.random();
 
-                // 30% chance for a cop standing on the obstacle
-                if (stackChance < 0.3) {
-                    obstacles.push(createObstacle('cop', 1));
+                // 40% chance for something stacked on top
+                if (stackChance < 0.4) {
+                    // 50/50 chance: another trash can or a cop
+                    if (Math.random() < 0.5) {
+                        obstacles.push(createObstacle('obstacle', 1)); // Trash can on trash can
 
-                    // 10% chance for another cop stacked even higher
-                    if (stackChance < 0.1 && difficultyLevel > 3) {
-                        obstacles.push(createObstacle('cop', 2));
+                        // 20% chance for a third level
+                        if (Math.random() < 0.2 && difficultyLevel > 3) {
+                            obstacles.push(createObstacle('obstacle', 2));
+                        }
+                    } else {
+                        obstacles.push(createObstacle('cop', 1)); // Cop on trash can
+
+                        // 10% chance for another cop stacked even higher
+                        if (Math.random() < 0.1 && difficultyLevel > 3) {
+                            obstacles.push(createObstacle('cop', 2));
+                        }
                     }
                 }
             } else if (randomType === 'cop' && difficultyLevel > 2) {
@@ -536,7 +538,7 @@
                         if (obstacleConfig.isDestructible) {
                             score += obstacleConfig.pointValue;
                             obstacles.splice(i, 1); // Remove the cop
-                            player.velocityY = CONFIG.player.jumpForce * 0.5; // Small bounce
+                            player.velocityY = CONFIG.player.jumpForce * 0.2; // Minimal bounce
                         }
                     } else if (checkCollision(player, obstacle)) {
                         // Hit from side or bottom
@@ -598,8 +600,19 @@
         }
 
         function drawGround() {
-            ctx.fillStyle = CONFIG.colors.ground;
+            // Black asphalt
+            ctx.fillStyle = '#1a1a1a';  // Dark gray/black for street
             ctx.fillRect(0, CONFIG.ground.y, CONFIG.canvas.width, CONFIG.ground.height);
+
+            // Yellow dashed center line
+            ctx.strokeStyle = '#ffff00';  // Yellow
+            ctx.lineWidth = 4;
+            ctx.setLineDash([30, 20]);  // 30px dash, 20px gap
+            ctx.beginPath();
+            ctx.moveTo(0, CONFIG.ground.y + 50);  // Adjust vertical position
+            ctx.lineTo(CONFIG.canvas.width, CONFIG.ground.y + 40);
+            ctx.stroke();
+            ctx.setLineDash([]);  // Reset to solid lines
         }
 
         function drawPlayer() {
@@ -677,29 +690,17 @@
                     ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
                 }
             } else if (obstacle.type === 'cop') {
-                // Update cop animation frame
-                if (gameState === 'playing') {
-                    copAnimationCounter++;
-                    if (copAnimationCounter >= copAnimationSpeed) {
-                        copAnimationCounter = 0;
-                        copAnimationFrame = (copAnimationFrame + 1) % CONFIG.obstacles.cop.frameCount;
-                    }
-                }
-
-                // Draw cop sprite if loaded, otherwise green square
+                // Draw cop gif if loaded, otherwise green square
                 if (copSpriteLoaded && copSprite.complete) {
-                    // Draw the current frame from the sprite sheet
-                    const frameWidth = CONFIG.obstacles.cop.frameWidth;
-                    const frameHeight = CONFIG.obstacles.cop.frameHeight;
-                    const sourceX = copAnimationFrame * frameWidth;
-
+                    // Draw the animated gif flipped horizontally
+                    ctx.save();
+                    ctx.scale(-1, 1); // Flip horizontally
                     ctx.drawImage(
                         copSprite,
-                        sourceX, 0, // Source x, y (current frame)
-                        frameWidth, frameHeight, // Source width, height
-                        obstacle.x, obstacle.y, // Dest x, y
-                        obstacle.width, obstacle.height // Dest width, height
+                        -obstacle.x - obstacle.width, obstacle.y,
+                        obstacle.width, obstacle.height
                     );
+                    ctx.restore();
                 } else {
                     // Fallback: Draw green square
                     ctx.fillStyle = obstacleConfig.outline;
