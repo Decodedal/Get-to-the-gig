@@ -50,7 +50,7 @@
 
             // Player
             player: {
-                width: 60,
+                width: 30, // Reduced for narrower hitbox
                 height: 80,
                 x: 150, // Fixed x position (centered-ish)
                 groundY: 450, // Y position when on ground
@@ -69,7 +69,7 @@
             obstacles: {
                 fireCan: {
                     // Burning trash can - instant death
-                    width: 40,
+                    width: 22, // Reduced for narrower hitbox
                     height: 60,
                     color: '#ff6600', // Orange/red
                     outline: '#000000',
@@ -79,7 +79,7 @@
                 },
                 cop: {
                     // Cop sprites - can jump on to destroy, or take damage
-                    width: 60,
+                    width: 30, // Reduced for narrower hitbox
                     height: 80,
                     color: '#00ff41', // Neon green (cop uniform) - fallback
                     outline: '#000000',
@@ -91,7 +91,7 @@
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
-                    width: 45,
+                    width: 25, // Reduced for narrower hitbox
                     height: 60,
                     color: '#ffff00', // Yellow
                     outline: '#000000',
@@ -103,6 +103,25 @@
                 maxSpawnDistance: 400, // Maximum distance for variety
                 initialSpeed: 4,
                 speedIncrease: 0.0005 // Speed increase per frame
+            },
+
+            // Power-ups
+            powerups: {
+                weed: {
+                    // Health replenishment
+                    width: 40,
+                    height: 40,
+                    healthRestore: 1,
+                    spawnChance: 0.015 // 1.5% chance per frame when eligible
+                },
+                git: {
+                    // Invincibility + speed boost
+                    width: 40,
+                    height: 40,
+                    duration: 240, // 4 seconds at 60fps (3-5 seconds range)
+                    speedMultiplier: 3,
+                    spawnChance: 0.008 // 0.8% chance per frame when eligible
+                }
             },
 
             // Game
@@ -215,6 +234,29 @@
             console.log('Fire gif not found - will use trash cans without fire');
         };
 
+        // Power-up sprites
+        const weedSprite = new Image();
+        weedSprite.src = 'assets/weed.png';
+        let weedSpriteLoaded = false;
+        weedSprite.onload = () => {
+            weedSpriteLoaded = true;
+            console.log('Weed power-up sprite loaded');
+        };
+        weedSprite.onerror = () => {
+            console.log('Failed to load weed sprite');
+        };
+
+        const gitSprite = new Image();
+        gitSprite.src = 'assets/git.png';
+        let gitSpriteLoaded = false;
+        gitSprite.onload = () => {
+            gitSpriteLoaded = true;
+            console.log('Git power-up sprite loaded');
+        };
+        gitSprite.onerror = () => {
+            console.log('Failed to load git sprite');
+        };
+
         // Animation state
         let animationFrame = 0;
         let animationCounter = 0;
@@ -254,17 +296,76 @@
             health: 3, // Player health
             maxHealth: 3,
             invulnerable: false, // Brief invulnerability after taking damage
-            invulnerableTime: 0
+            invulnerableTime: 0,
+            gitPowerActive: false, // Git power-up (invincibility + speed)
+            gitPowerTime: 0
         };
 
         // Game data
         let obstacles = [];
+        let powerups = []; // Active power-ups
         let scrollSpeed = CONFIG.game.scrollSpeed;
         let distance = 0;
         let frameCount = 0;
         let lastObstacleX = CONFIG.canvas.width;
         let score = 0; // Points from destroying cops
         let lastTripleStackDistance = -500; // Track when we last spawned a triple stack
+
+        // ============================================
+        // POWER-UP MANAGEMENT
+        // ============================================
+        function createPowerup(type) {
+            const powerupConfig = CONFIG.powerups[type];
+            // Spawn power-ups at a random height (floating in air)
+            const yPosition = CONFIG.ground.y - 100 - Math.random() * 150; // Between 100-250 pixels above ground
+
+            return {
+                type: type,
+                x: CONFIG.canvas.width,
+                y: yPosition,
+                width: powerupConfig.width,
+                height: powerupConfig.height
+            };
+        }
+
+        function spawnPowerup() {
+            // Don't spawn if there are already power-ups on screen
+            if (powerups.length > 0) return;
+
+            // Only spawn if player is below max health (for weed) or randomly (for git)
+            const weedChance = player.health < player.maxHealth ? CONFIG.powerups.weed.spawnChance : 0;
+            const gitChance = CONFIG.powerups.git.spawnChance;
+
+            const random = Math.random();
+
+            if (random < weedChance) {
+                powerups.push(createPowerup('weed'));
+                console.log('Spawned weed power-up');
+            } else if (random < weedChance + gitChance) {
+                powerups.push(createPowerup('git'));
+                console.log('Spawned git power-up');
+            }
+        }
+
+        function updatePowerups() {
+            // Get current scroll speed (accounting for git power-up)
+            const currentScrollSpeed = player.gitPowerActive
+                ? scrollSpeed * CONFIG.powerups.git.speedMultiplier
+                : scrollSpeed;
+
+            // Move power-ups left
+            powerups.forEach(powerup => {
+                powerup.x -= currentScrollSpeed;
+            });
+
+            // Remove off-screen power-ups
+            powerups = powerups.filter(powerup => powerup.x + powerup.width > 0);
+
+            // Try to spawn new power-ups
+            if (frameCount % 20 === 0) { // Check every 20 frames
+                spawnPowerup();
+            }
+        }
 
         // ============================================
         // OBSTACLE MANAGEMENT
@@ -371,9 +472,14 @@
         }
 
         function updateObstacles() {
+            // Get current scroll speed (accounting for git power-up)
+            const currentScrollSpeed = player.gitPowerActive
+                ? scrollSpeed * CONFIG.powerups.git.speedMultiplier
+                : scrollSpeed;
+
             // Move obstacles left
             obstacles.forEach(obstacle => {
-                obstacle.x -= scrollSpeed;
+                obstacle.x -= currentScrollSpeed;
             });
 
             // Remove off-screen obstacles
@@ -448,7 +554,8 @@
         }
 
         function jump() {
-            if ((player.isOnGround || player.isOnPlatform) && !player.isJumping) {
+            // Allow jumping immediately when on ground or platform (removed isJumping check)
+            if (player.isOnGround || player.isOnPlatform) {
                 player.velocityY = CONFIG.player.jumpForce;
                 player.isJumping = true;
                 player.isOnGround = false;
@@ -507,9 +614,50 @@
                 }
             }
 
+            // Update git power-up timer
+            if (player.gitPowerActive) {
+                player.gitPowerTime--;
+                if (player.gitPowerTime <= 0) {
+                    player.gitPowerActive = false;
+                    console.log('Git power-up expired');
+                }
+            }
+
+            // Check power-up collisions
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                const powerup = powerups[i];
+                if (checkCollision(player, powerup)) {
+                    // Collect the power-up
+                    if (powerup.type === 'weed') {
+                        // Restore health
+                        if (player.health < player.maxHealth) {
+                            player.health++;
+                            console.log('Health restored! Current health:', player.health);
+                        }
+                    } else if (powerup.type === 'git') {
+                        // Activate git power (invincibility + speed boost)
+                        player.gitPowerActive = true;
+                        player.gitPowerTime = CONFIG.powerups.git.duration;
+                        console.log('Git power activated! Invincible and speedy!');
+                    }
+                    // Remove the power-up
+                    powerups.splice(i, 1);
+                }
+            }
+
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 const obstacle = obstacles[i];
                 const obstacleConfig = CONFIG.obstacles[obstacle.type];
+
+                // If git power is active, destroy all obstacles on contact
+                if (player.gitPowerActive && checkCollision(player, obstacle)) {
+                    // Destroy obstacle and give points if it's a cop
+                    if (obstacleConfig.isDestructible) {
+                        score += obstacleConfig.pointValue;
+                    }
+                    obstacles.splice(i, 1);
+                    continue; // Skip further collision checks for this obstacle
+                }
 
                 // Fire cans do damage (not instant kill)
                 if (obstacle.type === 'fireCan') {
@@ -616,19 +764,71 @@
         }
 
         function drawPlayer() {
-            // Update animation frame
+            // Update animation frame (faster when git power is active)
             if (gameState === 'playing') {
+                const currentAnimSpeed = player.gitPowerActive ? animationSpeed / 3 : animationSpeed;
                 animationCounter++;
-                if (animationCounter >= animationSpeed) {
+                if (animationCounter >= currentAnimSpeed) {
                     animationCounter = 0;
                     animationFrame = (animationFrame + 1) % totalPunkFrames;
                 }
             }
 
+            // Add rainbow trail effect when git power is active
+            if (player.gitPowerActive) {
+                const trailLength = 5;
+                for (let i = 0; i < trailLength; i++) {
+                    const alpha = (trailLength - i) / trailLength * 0.3;
+                    const hue = (frameCount * 10 + i * 30) % 360;
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                    ctx.fillRect(
+                        player.x - i * 8,
+                        player.y,
+                        player.width,
+                        player.height
+                    );
+                }
+                ctx.globalAlpha = 1.0;
+
+                // Pulsing glow effect around player
+                const glowSize = 10 + Math.sin(frameCount * 0.2) * 5;
+                const gradient = ctx.createRadialGradient(
+                    player.x + player.width / 2,
+                    player.y + player.height / 2,
+                    0,
+                    player.x + player.width / 2,
+                    player.y + player.height / 2,
+                    player.width + glowSize
+                );
+                const hue = (frameCount * 5) % 360;
+                gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.6)`);
+                gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(
+                    player.x - glowSize,
+                    player.y - glowSize,
+                    player.width + glowSize * 2,
+                    player.height + glowSize * 2
+                );
+            }
+
             // Draw sprite if loaded, otherwise draw rectangle
             if (punkFramesLoaded === totalPunkFrames && punkRunFrames[animationFrame].complete) {
-                // Draw player sprite (flash when invulnerable)
-                if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                // Draw player sprite (flash when invulnerable, unless git power is active)
+                const shouldFlash = player.invulnerable && !player.gitPowerActive;
+                if (!shouldFlash || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                    // Apply color tint when git power is active
+                    if (player.gitPowerActive) {
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'multiply';
+                        const hue = (frameCount * 5) % 360;
+                        ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+                        ctx.fillRect(player.x, player.y, player.width, player.height);
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.restore();
+                    }
+
                     ctx.drawImage(
                         punkRunFrames[animationFrame],
                         player.x,
@@ -642,8 +842,14 @@
                 ctx.fillStyle = CONFIG.colors.playerOutline;
                 ctx.fillRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
 
-                if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
-                    ctx.fillStyle = CONFIG.colors.player;
+                const shouldFlash = player.invulnerable && !player.gitPowerActive;
+                if (!shouldFlash || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                    if (player.gitPowerActive) {
+                        const hue = (frameCount * 5) % 360;
+                        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                    } else {
+                        ctx.fillStyle = CONFIG.colors.player;
+                    }
                     ctx.fillRect(player.x, player.y, player.width, player.height);
                 }
             }
@@ -744,6 +950,51 @@
             obstacles.forEach(obstacle => drawObstacle(obstacle));
         }
 
+        function drawPowerup(powerup) {
+            const sprite = powerup.type === 'weed' ? weedSprite : gitSprite;
+            const spriteLoaded = powerup.type === 'weed' ? weedSpriteLoaded : gitSpriteLoaded;
+
+            if (spriteLoaded && sprite.complete) {
+                // Add a floating/bobbing animation
+                const bobOffset = Math.sin(frameCount * 0.1 + powerup.x * 0.01) * 5;
+
+                // Add glow effect
+                ctx.save();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = powerup.type === 'weed' ? '#00ff00' : '#ff00ff';
+
+                ctx.drawImage(
+                    sprite,
+                    powerup.x,
+                    powerup.y + bobOffset,
+                    powerup.width,
+                    powerup.height
+                );
+
+                ctx.restore();
+            } else {
+                // Fallback: draw colored rectangle with glow
+                ctx.save();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = powerup.type === 'weed' ? '#00ff00' : '#ff00ff';
+                ctx.fillStyle = powerup.type === 'weed' ? '#00ff00' : '#ff00ff';
+
+                const bobOffset = Math.sin(frameCount * 0.1 + powerup.x * 0.01) * 5;
+                ctx.fillRect(
+                    powerup.x,
+                    powerup.y + bobOffset,
+                    powerup.width,
+                    powerup.height
+                );
+
+                ctx.restore();
+            }
+        }
+
+        function drawPowerups() {
+            powerups.forEach(powerup => drawPowerup(powerup));
+        }
+
         function drawUI() {
             ctx.font = 'bold 20px Courier New';
             ctx.textAlign = 'left';
@@ -794,6 +1045,25 @@
                     ctx.fillStyle = '#444444';
                     ctx.fillText('♡', x, 30);
                 }
+            }
+
+            // Git power indicator
+            if (player.gitPowerActive) {
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 28px Courier New';
+                const timeLeft = (player.gitPowerTime / 60).toFixed(1); // Convert frames to seconds
+                const hue = (frameCount * 10) % 360;
+
+                // Animated background
+                ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.3)`;
+                ctx.fillRect(CONFIG.canvas.width / 2 - 100, 55, 200, 40);
+
+                // Text with glow
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+                ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+                ctx.fillText(`⚡ GIT POWER: ${timeLeft}s ⚡`, CONFIG.canvas.width / 2, 80);
+                ctx.shadowBlur = 0;
             }
         }
 
@@ -889,6 +1159,7 @@
             drawBackground();
             drawGround();
             drawObstacles();
+            drawPowerups();
             drawPlayer();
             drawUI();
         }
@@ -908,9 +1179,12 @@
             player.health = player.maxHealth;
             player.invulnerable = false;
             player.invulnerableTime = 0;
+            player.gitPowerActive = false;
+            player.gitPowerTime = 0;
 
             // Reset game data
             obstacles = [];
+            powerups = [];
             scrollSpeed = CONFIG.game.scrollSpeed;
             distance = 0;
             frameCount = 0;
@@ -952,8 +1226,11 @@
 
             frameCount++;
 
-            // Update distance
-            distance += CONFIG.game.distanceMultiplier;
+            // Update distance (faster when git power is active)
+            const distanceMultiplier = player.gitPowerActive
+                ? CONFIG.game.distanceMultiplier * CONFIG.powerups.git.speedMultiplier
+                : CONFIG.game.distanceMultiplier;
+            distance += distanceMultiplier;
 
             // Gradually increase scroll speed
             scrollSpeed = Math.min(
@@ -964,6 +1241,7 @@
             // Update game objects
             updatePlayer();
             updateObstacles();
+            updatePowerups();
 
             // Check collisions
             const collisionResult = checkCollisions();
