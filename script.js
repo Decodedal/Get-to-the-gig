@@ -337,16 +337,26 @@
             // Fire cans never stack - they're instant death obstacles
 
             if (randomType === 'obstacle' && difficultyLevel > 1) {
-                // Yellow obstacle (trash can, etc.) - can have cops standing on top
+                // Yellow obstacle (trash can, etc.) - can have stacks
                 const stackChance = Math.random();
 
-                // 30% chance for a cop standing on the obstacle
-                if (stackChance < 0.3) {
-                    obstacles.push(createObstacle('cop', 1));
+                // 40% chance for something stacked on top
+                if (stackChance < 0.4) {
+                    // 50/50 chance: another trash can or a cop
+                    if (Math.random() < 0.5) {
+                        obstacles.push(createObstacle('obstacle', 1)); // Trash can on trash can
 
-                    // 10% chance for another cop stacked even higher
-                    if (stackChance < 0.1 && difficultyLevel > 3) {
-                        obstacles.push(createObstacle('cop', 2));
+                        // 20% chance for a third level
+                        if (Math.random() < 0.2 && difficultyLevel > 3) {
+                            obstacles.push(createObstacle('obstacle', 2));
+                        }
+                    } else {
+                        obstacles.push(createObstacle('cop', 1)); // Cop on trash can
+
+                        // 10% chance for another cop stacked even higher
+                        if (Math.random() < 0.1 && difficultyLevel > 3) {
+                            obstacles.push(createObstacle('cop', 2));
+                        }
                     }
                 }
             } else if (randomType === 'cop' && difficultyLevel > 2) {
