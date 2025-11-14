@@ -88,7 +88,7 @@
                     isDestructible: true,
                     damageOnSide: true,
                     pointValue: 10,
-                    frameCount: 6, // Use first 6 frames of cop sprite sheet
+                    frameCount: 1, // Use only the first frame of cop sprite sheet
                     frameWidth: 85.16, // 511 / 6
                     frameHeight: 131
                 },
@@ -509,10 +509,16 @@
                 const obstacle = obstacles[i];
                 const obstacleConfig = CONFIG.obstacles[obstacle.type];
 
-                // Fire cans always kill instantly
+                // Fire cans do damage (not instant kill)
                 if (obstacle.type === 'fireCan') {
-                    if (checkCollision(player, obstacle)) {
-                        return 'death'; // Instant game over
+                    if (checkCollision(player, obstacle) && !player.invulnerable) {
+                        player.health--;
+                        player.invulnerable = true;
+                        player.invulnerableTime = 60; // 1 second at 60fps
+
+                        if (player.health <= 0) {
+                            return 'death'; // Game over
+                        }
                     }
                 }
                 // Platforms and cops can be landed on
@@ -534,8 +540,8 @@
                         }
                     } else if (checkCollision(player, obstacle)) {
                         // Hit from side or bottom
-                        if (obstacleConfig.damageOnSide && !player.invulnerable) {
-                            // Take damage from cop
+                        if (!player.invulnerable) {
+                            // Take damage from any side collision (cops or obstacles)
                             player.health--;
                             player.invulnerable = true;
                             player.invulnerableTime = 60; // 1 second at 60fps
@@ -810,8 +816,8 @@
             ctx.fillStyle = CONFIG.colors.ui.text;
             ctx.fillText('👮 COPS: Jump on to destroy (+10pts)', CONFIG.canvas.width / 2, 120);
             ctx.fillText('   Hit from side = damage', CONFIG.canvas.width / 2, 137);
-            ctx.fillText('🗑️ TRASH CANS: Safe platforms - land on top', CONFIG.canvas.width / 2, 157);
-            ctx.fillText('🔥 BURNING TRASH CANS: Instant death!', CONFIG.canvas.width / 2, 177);
+            ctx.fillText('🗑️ TRASH CANS: Jump over or land on top', CONFIG.canvas.width / 2, 157);
+            ctx.fillText('🔥 BURNING TRASH CANS: Avoid or take damage!', CONFIG.canvas.width / 2, 177);
             ctx.fillText('Watch for stacked obstacles!', CONFIG.canvas.width / 2, 197);
 
             // Instructions
