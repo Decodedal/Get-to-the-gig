@@ -14,7 +14,7 @@
                     base: '#0a0a0a',        // Deep black
                     overlay: '#1a1a1a'      // Slightly lighter for pattern
                 },
-                ground: '#ff006e',          // Hot pink
+                ground: '#000000ff',          // Hot pink
                 player: '#00ff41',          // Neon green
                 playerOutline: '#000000',   // Black outline
                 obstacles: {
@@ -600,8 +600,19 @@
         }
 
         function drawGround() {
-            ctx.fillStyle = CONFIG.colors.ground;
+            // Black asphalt
+            ctx.fillStyle = '#1a1a1a';  // Dark gray/black for street
             ctx.fillRect(0, CONFIG.ground.y, CONFIG.canvas.width, CONFIG.ground.height);
+
+            // Yellow dashed center line
+            ctx.strokeStyle = '#ffff00';  // Yellow
+            ctx.lineWidth = 4;
+            ctx.setLineDash([30, 20]);  // 30px dash, 20px gap
+            ctx.beginPath();
+            ctx.moveTo(0, CONFIG.ground.y + 50);  // Adjust vertical position
+            ctx.lineTo(CONFIG.canvas.width, CONFIG.ground.y + 40);
+            ctx.stroke();
+            ctx.setLineDash([]);  // Reset to solid lines
         }
 
         function drawPlayer() {
