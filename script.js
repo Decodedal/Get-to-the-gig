@@ -79,18 +79,15 @@
                 },
                 cop: {
                     // Cop sprites - can jump on to destroy, or take damage
-                    width: 85,
-                    height: 131,
+                    width: 60,
+                    height: 90,
                     color: '#00ff41', // Neon green (cop uniform) - fallback
                     outline: '#000000',
                     outlineWidth: 3,
                     isPlatform: true, // Can land on top to destroy
                     isDestructible: true,
                     damageOnSide: true,
-                    pointValue: 10,
-                    frameCount: 1, // Use only the first frame of cop sprite sheet
-                    frameWidth: 85.16, // 511 / 6
-                    frameHeight: 131
+                    pointValue: 10
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
@@ -222,11 +219,6 @@
         let animationFrame = 0;
         let animationCounter = 0;
         const animationSpeed = 5; // Change frame every 5 game frames
-
-        // Cop animation state
-        let copAnimationFrame = 0;
-        let copAnimationCounter = 0;
-        const copAnimationSpeed = 8; // Slower animation for cops
 
         // Audio - select random song
         let backgroundMusic = null;
@@ -677,28 +669,13 @@
                     ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
                 }
             } else if (obstacle.type === 'cop') {
-                // Update cop animation frame
-                if (gameState === 'playing') {
-                    copAnimationCounter++;
-                    if (copAnimationCounter >= copAnimationSpeed) {
-                        copAnimationCounter = 0;
-                        copAnimationFrame = (copAnimationFrame + 1) % CONFIG.obstacles.cop.frameCount;
-                    }
-                }
-
-                // Draw cop sprite if loaded, otherwise green square
+                // Draw cop gif if loaded, otherwise green square
                 if (copSpriteLoaded && copSprite.complete) {
-                    // Draw the current frame from the sprite sheet
-                    const frameWidth = CONFIG.obstacles.cop.frameWidth;
-                    const frameHeight = CONFIG.obstacles.cop.frameHeight;
-                    const sourceX = copAnimationFrame * frameWidth;
-
+                    // Draw the animated gif (animation plays automatically)
                     ctx.drawImage(
                         copSprite,
-                        sourceX, 0, // Source x, y (current frame)
-                        frameWidth, frameHeight, // Source width, height
-                        obstacle.x, obstacle.y, // Dest x, y
-                        obstacle.width, obstacle.height // Dest width, height
+                        obstacle.x, obstacle.y,
+                        obstacle.width, obstacle.height
                     );
                 } else {
                     // Fallback: Draw green square
