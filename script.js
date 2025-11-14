@@ -310,7 +310,8 @@
             invulnerable: false, // Brief invulnerability after taking damage
             invulnerableTime: 0,
             gitPowerActive: false, // Git power-up (invincibility + speed)
-            gitPowerTime: 0
+            gitPowerTime: 0,
+            jumpBuffer: 0 // Frames to buffer jump input
         };
 
         // Game data
@@ -532,6 +533,11 @@
         // PLAYER PHYSICS
         // ============================================
         function updatePlayer() {
+            // Decrease jump buffer
+            if (player.jumpBuffer > 0) {
+                player.jumpBuffer--;
+            }
+
             // Apply gravity if not on ground or platform
             if (!player.isOnGround && !player.isOnPlatform) {
                 player.velocityY += CONFIG.player.gravity;
@@ -564,23 +570,31 @@
                 player.isOnGround = true;
                 player.isOnPlatform = false;
                 player.currentPlatform = null;
+
+                // Execute buffered jump if player pressed jump recently
+                if (player.jumpBuffer > 0) {
+                    player.velocityY = CONFIG.player.jumpForce;
+                    player.isJumping = true;
+                    player.isOnGround = false;
+                    player.jumpBuffer = 0;
+                }
             } else {
                 player.isOnGround = false;
             }
         }
 
         function jump() {
-            // Allow jumping if on ground/platform OR if falling/stopped (not rising)
-            // This allows immediate jumping upon landing without waiting for flags to update
-            const canJump = player.isOnGround || player.isOnPlatform ||
-                           (player.velocityY >= -0.5); // Not rising significantly
-
-            if (canJump) {
+            // Jump immediately if on ground/platform
+            if (player.isOnGround || player.isOnPlatform) {
                 player.velocityY = CONFIG.player.jumpForce;
                 player.isJumping = true;
                 player.isOnGround = false;
                 player.isOnPlatform = false;
                 player.currentPlatform = null;
+                player.jumpBuffer = 0; // Clear buffer since we jumped
+            } else {
+                // Buffer the jump input for 10 frames (allows pressing jump slightly before landing)
+                player.jumpBuffer = 10;
             }
         }
 
@@ -743,6 +757,15 @@
                             score += obstacleConfig.pointValue;
                             obstacles.splice(i, 1); // Remove the cop
                             player.velocityY = CONFIG.player.jumpForce * 0.2; // Minimal bounce
+                        } else {
+                            // Execute buffered jump if player pressed jump recently (only for non-destructible platforms)
+                            if (player.jumpBuffer > 0) {
+                                player.velocityY = CONFIG.player.jumpForce;
+                                player.isJumping = true;
+                                player.isOnPlatform = false;
+                                player.currentPlatform = null;
+                                player.jumpBuffer = 0;
+                            }
                         }
                     } else if (checkCollision(player, obstacle)) {
                         // Hit from side or bottom
@@ -1237,6 +1260,7 @@
             player.invulnerableTime = 0;
             player.gitPowerActive = false;
             player.gitPowerTime = 0;
+            player.jumpBuffer = 0;
 
             // Reset game data
             obstacles = [];
