@@ -5,11 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
+    <!-- Force landscape orientation on mobile -->
+    <meta name="screen-orientation" content="landscape">
+    <meta name="x5-orientation" content="landscape">
     <title>Get to the Gig</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+
+    <!-- Rotate message for portrait mode on mobile -->
+    <div id="rotate-message">
+        <div class="rotate-icon">📱 ↻</div>
+        <p>Please rotate your device to landscape mode</p>
+    </div>
 
     <script src="script.js"></script>
 </body>

@@ -50,13 +50,16 @@
 
             // Player
             player: {
-                width: 60,
+                width: 60, // Visual width
                 height: 80,
+                hitboxWidth: 30, // Narrower hitbox for collision
+                hitboxOffset: 15, // Center the hitbox
                 x: 150, // Fixed x position (centered-ish)
                 groundY: 450, // Y position when on ground
                 jumpForce: -15,
                 gravity: 0.65,
-                maxFallSpeed: 18
+                maxFallSpeed: 18,
+                jumpCutMultiplier: 0.4 // Multiply upward velocity by this when jump key released early
             },
 
             // Ground
@@ -69,8 +72,10 @@
             obstacles: {
                 fireCan: {
                     // Burning trash can - instant death
-                    width: 40,
+                    width: 40, // Visual width
                     height: 60,
+                    hitboxWidth: 22, // Narrower hitbox
+                    hitboxOffset: 9, // Center the hitbox
                     color: '#ff6600', // Orange/red
                     outline: '#000000',
                     outlineWidth: 2,
@@ -79,8 +84,12 @@
                 },
                 cop: {
                     // Cop sprites - can jump on to destroy, or take damage
-                    width: 60,
+                    width: 60, // Visual width
                     height: 80,
+                    hitboxWidth: 30, // Narrower hitbox
+                    hitboxOffset: 15, // Center the hitbox
+                    hitboxHeight: 70, // Slightly shorter hitbox from top
+                    hitboxTopOffset: 10, // Start hitbox lower from top
                     color: '#00ff41', // Neon green (cop uniform) - fallback
                     outline: '#000000',
                     outlineWidth: 3,
@@ -91,18 +100,57 @@
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
-                    width: 45,
+                    width: 45, // Visual width
                     height: 60,
+                    hitboxWidth: 25, // Narrower hitbox
+                    hitboxOffset: 10, // Center the hitbox
+                    hitboxHeight: 50, // Slightly shorter hitbox from top
+                    hitboxTopOffset: 10, // Start hitbox lower from top
                     color: '#ffff00', // Yellow
                     outline: '#000000',
                     outlineWidth: 3,
                     isPlatform: true, // Can land on
                     isDestructible: false
                 },
-                spawnDistance: 250, // Minimum distance between obstacles
-                maxSpawnDistance: 400, // Maximum distance for variety
+
+                // ===== SPACING TWEAKS - Adjust these to change difficulty! =====
+                spawnDistance: 250,        // Minimum gap between obstacle groups (lower = harder)
+                maxSpawnDistance: 400,     // Maximum gap for variety (higher = easier)
+                minDistanceFloor: 150,     // Minimum distance won't go below this (safety floor)
+
+                tripleStackDistance: 180,  // Distance from single platform to triple-stack (lower = harder to clear)
+                stackHeight: 90,           // Vertical pixels between stacked obstacles (affects jump arc needed)
+
+                // Difficulty scaling (how fast obstacles get closer together as game progresses)
+                difficultySpacing: 10,     // How much to reduce minDistance per difficulty level (higher = gets harder faster)
+                difficultyMaxSpacing: 15,  // How much to reduce maxDistance per difficulty level
+
+                // Triple-stack spawning
+                tripleStackMinDifficulty: 2,    // Difficulty level needed before triple-stacks appear
+                tripleStackMinDistance: 200,    // Minimum distance since last triple-stack before spawning another
+                tripleStackChance: 0.15,        // 15% chance to spawn when eligible
+
                 initialSpeed: 4,
                 speedIncrease: 0.0005 // Speed increase per frame
+            },
+
+            // Power-ups
+            powerups: {
+                weed: {
+                    // Health replenishment
+                    width: 60,
+                    height: 60,
+                    healthRestore: 1,
+                    spawnChance: 0.015 // 1.5% chance per frame when eligible
+                },
+                git: {
+                    // Invincibility + speed boost
+                    width: 60,
+                    height: 60,
+                    duration: 240, // 4 seconds at 60fps (3-5 seconds range)
+                    speedMultiplier: 3,
+                    spawnChance: 0.008 // 0.8% chance per frame when eligible
+                }
             },
 
             // Game
@@ -143,6 +191,7 @@
         // Game state
         let gameState = 'start'; // 'start', 'playing', 'gameOver'
         let animationId = null;
+        let jumpKeyHeld = false; // Track if jump key/touch is being held
 
         // Logo image for background pattern
         const logoImage = new Image();
@@ -215,6 +264,29 @@
             console.log('Fire gif not found - will use trash cans without fire');
         };
 
+        // Power-up sprites
+        const weedSprite = new Image();
+        weedSprite.src = 'assets/weed.png';
+        let weedSpriteLoaded = false;
+        weedSprite.onload = () => {
+            weedSpriteLoaded = true;
+            console.log('Weed power-up sprite loaded');
+        };
+        weedSprite.onerror = () => {
+            console.log('Failed to load weed sprite');
+        };
+
+        const gitSprite = new Image();
+        gitSprite.src = 'assets/git.png';
+        let gitSpriteLoaded = false;
+        gitSprite.onload = () => {
+            gitSpriteLoaded = true;
+            console.log('Git power-up sprite loaded');
+        };
+        gitSprite.onerror = () => {
+            console.log('Failed to load git sprite');
+        };
+
         // Animation state
         let animationFrame = 0;
         let animationCounter = 0;
@@ -254,11 +326,14 @@
             health: 3, // Player health
             maxHealth: 3,
             invulnerable: false, // Brief invulnerability after taking damage
-            invulnerableTime: 0
+            invulnerableTime: 0,
+            gitPowerActive: false, // Git power-up (invincibility + speed)
+            gitPowerTime: 0
         };
 
         // Game data
         let obstacles = [];
+        let powerups = []; // Active power-ups
         let scrollSpeed = CONFIG.game.scrollSpeed;
         let distance = 0;
         let frameCount = 0;
@@ -267,12 +342,69 @@
         let lastTripleStackDistance = -500; // Track when we last spawned a triple stack
 
         // ============================================
+        // POWER-UP MANAGEMENT
+        // ============================================
+        function createPowerup(type) {
+            const powerupConfig = CONFIG.powerups[type];
+            // Spawn power-ups at a random height (floating in air)
+            const yPosition = CONFIG.ground.y - 100 - Math.random() * 150; // Between 100-250 pixels above ground
+
+            return {
+                type: type,
+                x: CONFIG.canvas.width,
+                y: yPosition,
+                width: powerupConfig.width,
+                height: powerupConfig.height
+            };
+        }
+
+        function spawnPowerup() {
+            // Don't spawn if there are already power-ups on screen
+            if (powerups.length > 0) return;
+
+            // Only spawn if player is below max health (for weed) or randomly (for git)
+            const weedChance = player.health < player.maxHealth ? CONFIG.powerups.weed.spawnChance : 0;
+            const gitChance = CONFIG.powerups.git.spawnChance;
+
+            const random = Math.random();
+
+            if (random < weedChance) {
+                powerups.push(createPowerup('weed'));
+                console.log('Spawned weed power-up');
+            } else if (random < weedChance + gitChance) {
+                powerups.push(createPowerup('git'));
+                console.log('Spawned git power-up');
+            }
+        }
+
+        function updatePowerups() {
+            // Get current scroll speed (accounting for git power-up)
+            const currentScrollSpeed = player.gitPowerActive
+                ? scrollSpeed * CONFIG.powerups.git.speedMultiplier
+                : scrollSpeed;
+
+            // Move power-ups left
+            powerups.forEach(powerup => {
+                powerup.x -= currentScrollSpeed;
+            });
+
+            // Remove off-screen power-ups
+            powerups = powerups.filter(powerup => powerup.x + powerup.width > 0);
+
+            // Try to spawn new power-ups
+            if (frameCount % 20 === 0) { // Check every 20 frames
+                spawnPowerup();
+            }
+        }
+
+        // ============================================
         // OBSTACLE MANAGEMENT
         // ============================================
         function createObstacle(type, heightLevel = 0, xOffset = 0, isBurning = false) {
             const obstacleConfig = CONFIG.obstacles[type];
             // Height levels: 0 = ground, 1 = medium, 2 = high
-            const yOffset = heightLevel * 90; // Stack height for platforms (scaled up)
+            // Use CONFIG.obstacles.stackHeight so you can tweak vertical spacing!
+            const yOffset = heightLevel * CONFIG.obstacles.stackHeight;
 
             return {
                 type: type,
@@ -280,6 +412,10 @@
                 y: CONFIG.ground.y - obstacleConfig.height - yOffset,
                 width: obstacleConfig.width,
                 height: obstacleConfig.height,
+                hitboxWidth: obstacleConfig.hitboxWidth || obstacleConfig.width,
+                hitboxOffset: obstacleConfig.hitboxOffset || 0,
+                hitboxHeight: obstacleConfig.hitboxHeight || obstacleConfig.height,
+                hitboxTopOffset: obstacleConfig.hitboxTopOffset || 0,
                 color: obstacleConfig.color,
                 isPlatform: obstacleConfig.isPlatform,
                 heightLevel: heightLevel,
@@ -292,7 +428,8 @@
             obstacles.push(createObstacle('obstacle', 0, 0));
 
             // Spawn triple-stack yellows further ahead (player must jump from the single to clear these)
-            const tripleStackX = 180; // Distance ahead for the triple stack
+            // Use CONFIG value so you can easily tweak this!
+            const tripleStackX = CONFIG.obstacles.tripleStackDistance;
             obstacles.push(createObstacle('obstacle', 0, tripleStackX));
             obstacles.push(createObstacle('obstacle', 1, tripleStackX));
             obstacles.push(createObstacle('obstacle', 2, tripleStackX));
@@ -371,9 +508,14 @@
         }
 
         function updateObstacles() {
+            // Get current scroll speed (accounting for git power-up)
+            const currentScrollSpeed = player.gitPowerActive
+                ? scrollSpeed * CONFIG.powerups.git.speedMultiplier
+                : scrollSpeed;
+
             // Move obstacles left
             obstacles.forEach(obstacle => {
-                obstacle.x -= scrollSpeed;
+                obstacle.x -= currentScrollSpeed;
             });
 
             // Remove off-screen obstacles
@@ -385,18 +527,19 @@
                 : 0;
 
             // Variable spawn distance based on difficulty
+            // Use CONFIG values so you can easily tweak difficulty progression!
             const difficultyLevel = Math.floor(distance / 50);
-            const minDistance = Math.max(150, CONFIG.obstacles.spawnDistance - (difficultyLevel * 10));
-            const maxDistance = Math.max(minDistance + 50, CONFIG.obstacles.maxSpawnDistance - (difficultyLevel * 15));
+            const minDistance = Math.max(CONFIG.obstacles.minDistanceFloor, CONFIG.obstacles.spawnDistance - (difficultyLevel * CONFIG.obstacles.difficultySpacing));
+            const maxDistance = Math.max(minDistance + 50, CONFIG.obstacles.maxSpawnDistance - (difficultyLevel * CONFIG.obstacles.difficultyMaxSpacing));
             const spawnDistance = minDistance + Math.random() * (maxDistance - minDistance);
 
             if (rightmostObstacle < CONFIG.canvas.width - spawnDistance) {
                 // Check if we should spawn a triple-stack sequence
-                // Only spawn if: difficulty > 2, hasn't spawned recently, and random chance
+                // All values from CONFIG so you can tweak them!
                 const distanceSinceLastTriple = distance - lastTripleStackDistance;
-                const shouldSpawnTriple = difficultyLevel > 2 &&
-                                         distanceSinceLastTriple > 200 &&
-                                         Math.random() < 0.15; // 15% chance
+                const shouldSpawnTriple = difficultyLevel > CONFIG.obstacles.tripleStackMinDifficulty &&
+                                         distanceSinceLastTriple > CONFIG.obstacles.tripleStackMinDistance &&
+                                         Math.random() < CONFIG.obstacles.tripleStackChance;
 
                 if (shouldSpawnTriple) {
                     spawnTripleStackSequence();
@@ -448,49 +591,94 @@
         }
 
         function jump() {
-            if ((player.isOnGround || player.isOnPlatform) && !player.isJumping) {
+            // Only allow jumping when on ground or platform - no air jumps
+            if (player.isOnGround || player.isOnPlatform) {
                 player.velocityY = CONFIG.player.jumpForce;
                 player.isJumping = true;
                 player.isOnGround = false;
                 player.isOnPlatform = false;
                 player.currentPlatform = null;
+                jumpKeyHeld = true; // Mark that jump key is being held
             }
+        }
+
+        function releaseJump() {
+            // Cut the jump short if player is still moving upward
+            if (jumpKeyHeld && player.velocityY < 0) {
+                player.velocityY *= CONFIG.player.jumpCutMultiplier;
+            }
+            jumpKeyHeld = false;
         }
 
         // ============================================
         // COLLISION DETECTION (AABB with platform support)
         // ============================================
+
+        // Helper function to get hitbox for player
+        function getPlayerHitbox() {
+            return {
+                x: player.x + CONFIG.player.hitboxOffset,
+                y: player.y,
+                width: CONFIG.player.hitboxWidth,
+                height: player.height
+            };
+        }
+
+        // Helper function to get hitbox for obstacle
+        function getObstacleHitbox(obstacle) {
+            return {
+                x: obstacle.x + (obstacle.hitboxOffset || 0),
+                y: obstacle.y + (obstacle.hitboxTopOffset || 0),
+                width: obstacle.hitboxWidth || obstacle.width,
+                height: obstacle.hitboxHeight || obstacle.height
+            };
+        }
+
         function checkCollision(rect1, rect2) {
-            return rect1.x < rect2.x + rect2.width &&
-                   rect1.x + rect1.width > rect2.x &&
-                   rect1.y < rect2.y + rect2.height &&
-                   rect1.y + rect1.height > rect2.y;
+            // If rect1 is player or obstacle, use hitbox
+            const hitbox1 = rect1 === player ? getPlayerHitbox() :
+                           (rect1.hitboxWidth ? getObstacleHitbox(rect1) : rect1);
+            const hitbox2 = rect2 === player ? getPlayerHitbox() :
+                           (rect2.hitboxWidth ? getObstacleHitbox(rect2) : rect2);
+
+            return hitbox1.x < hitbox2.x + hitbox2.width &&
+                   hitbox1.x + hitbox1.width > hitbox2.x &&
+                   hitbox1.y < hitbox2.y + hitbox2.height &&
+                   hitbox1.y + hitbox1.height > hitbox2.y;
         }
 
         function checkPlatformLanding(player, platform) {
+            // Use hitboxes for more accurate collision
+            const playerHitbox = getPlayerHitbox();
+            const platformHitbox = getObstacleHitbox(platform);
+
             // Check if player is falling onto the platform from above
-            const wasAbove = player.y + player.height - player.velocityY <= platform.y + 5;
-            const isOnTop = player.y + player.height >= platform.y &&
-                           player.y + player.height <= platform.y + platform.height / 2;
-            const horizontalOverlap = player.x < platform.x + platform.width &&
-                                     player.x + player.width > platform.x;
+            const wasAbove = playerHitbox.y + playerHitbox.height - player.velocityY <= platformHitbox.y + 5;
+            const isOnTop = playerHitbox.y + playerHitbox.height >= platformHitbox.y &&
+                           playerHitbox.y + playerHitbox.height <= platformHitbox.y + platformHitbox.height / 2;
+            const horizontalOverlap = playerHitbox.x < platformHitbox.x + platformHitbox.width &&
+                                     playerHitbox.x + playerHitbox.width > platformHitbox.x;
 
             return wasAbove && isOnTop && horizontalOverlap && player.velocityY >= 0;
         }
 
         function checkSideCollision(player, obstacle) {
+            // Use hitboxes for more accurate collision
+            const playerHitbox = getPlayerHitbox();
+            const obstacleHitbox = getObstacleHitbox(obstacle);
+
             // Check if player is hitting the sides or bottom of obstacle
-            const horizontalOverlap = player.x < obstacle.x + obstacle.width &&
-                                     player.x + player.width > obstacle.x;
-            const verticalOverlap = player.y < obstacle.y + obstacle.height &&
-                                   player.y + player.height > obstacle.y;
+            const horizontalOverlap = playerHitbox.x < obstacleHitbox.x + obstacleHitbox.width &&
+                                     playerHitbox.x + playerHitbox.width > obstacleHitbox.x;
+            const verticalOverlap = playerHitbox.y < obstacleHitbox.y + obstacleHitbox.height &&
+                                   playerHitbox.y + playerHitbox.height > obstacleHitbox.y;
 
             if (!horizontalOverlap || !verticalOverlap) return false;
 
             // Determine collision side
-            const fromLeft = player.x + player.width - player.velocityY <= obstacle.x + 10;
-            const fromRight = player.x >= obstacle.x + obstacle.width - 10;
-            const fromBottom = player.y <= obstacle.y + obstacle.height - 10;
+            const fromLeft = playerHitbox.x + playerHitbox.width - player.velocityY <= obstacleHitbox.x + 10;
+            const fromRight = playerHitbox.x >= obstacleHitbox.x + obstacleHitbox.width - 10;
+            const fromBottom = playerHitbox.y <= obstacleHitbox.y + obstacleHitbox.height - 10;
 
             return fromLeft || fromRight || fromBottom;
         }
@@ -507,9 +695,50 @@
                 }
             }
 
+            // Update git power-up timer
+            if (player.gitPowerActive) {
+                player.gitPowerTime--;
+                if (player.gitPowerTime <= 0) {
+                    player.gitPowerActive = false;
+                    console.log('Git power-up expired');
+                }
+            }
+
+            // Check power-up collisions
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                const powerup = powerups[i];
+                if (checkCollision(player, powerup)) {
+                    // Collect the power-up
+                    if (powerup.type === 'weed') {
+                        // Restore health
+                        if (player.health < player.maxHealth) {
+                            player.health++;
+                            console.log('Health restored! Current health:', player.health);
+                        }
+                    } else if (powerup.type === 'git') {
+                        // Activate git power (invincibility + speed boost)
+                        player.gitPowerActive = true;
+                        player.gitPowerTime = CONFIG.powerups.git.duration;
+                        console.log('Git power activated! Invincible and speedy!');
+                    }
+                    // Remove the power-up
+                    powerups.splice(i, 1);
+                }
+            }
+
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 const obstacle = obstacles[i];
                 const obstacleConfig = CONFIG.obstacles[obstacle.type];
+
+                // If git power is active, destroy all obstacles on contact
+                if (player.gitPowerActive && checkCollision(player, obstacle)) {
+                    // Destroy obstacle and give points if it's a cop
+                    if (obstacleConfig.isDestructible) {
+                        score += obstacleConfig.pointValue;
+                    }
+                    obstacles.splice(i, 1);
+                    continue; // Skip further collision checks for this obstacle
+                }
 
                 // Fire cans do damage (not instant kill)
                 if (obstacle.type === 'fireCan') {
@@ -526,8 +755,9 @@
                 // Platforms and cops can be landed on
                 else if (obstacleConfig.isPlatform) {
                     if (checkPlatformLanding(player, obstacle)) {
-                        // Land on platform
-                        player.y = obstacle.y - player.height;
+                        // Land on platform - use hitbox y position for more accurate landing
+                        const obstacleHitbox = getObstacleHitbox(obstacle);
+                        player.y = obstacleHitbox.y - player.height;
                         player.velocityY = 0;
                         player.isOnGround = false;
                         player.isOnPlatform = true;
@@ -616,19 +846,71 @@
         }
 
         function drawPlayer() {
-            // Update animation frame
+            // Update animation frame (faster when git power is active)
             if (gameState === 'playing') {
+                const currentAnimSpeed = player.gitPowerActive ? animationSpeed / 3 : animationSpeed;
                 animationCounter++;
-                if (animationCounter >= animationSpeed) {
+                if (animationCounter >= currentAnimSpeed) {
                     animationCounter = 0;
                     animationFrame = (animationFrame + 1) % totalPunkFrames;
                 }
             }
 
+            // Add rainbow trail effect when git power is active
+            if (player.gitPowerActive) {
+                const trailLength = 5;
+                for (let i = 0; i < trailLength; i++) {
+                    const alpha = (trailLength - i) / trailLength * 0.3;
+                    const hue = (frameCount * 10 + i * 30) % 360;
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                    ctx.fillRect(
+                        player.x - i * 8,
+                        player.y,
+                        player.width,
+                        player.height
+                    );
+                }
+                ctx.globalAlpha = 1.0;
+
+                // Pulsing glow effect around player
+                const glowSize = 10 + Math.sin(frameCount * 0.2) * 5;
+                const gradient = ctx.createRadialGradient(
+                    player.x + player.width / 2,
+                    player.y + player.height / 2,
+                    0,
+                    player.x + player.width / 2,
+                    player.y + player.height / 2,
+                    player.width + glowSize
+                );
+                const hue = (frameCount * 5) % 360;
+                gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.6)`);
+                gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(
+                    player.x - glowSize,
+                    player.y - glowSize,
+                    player.width + glowSize * 2,
+                    player.height + glowSize * 2
+                );
+            }
+
             // Draw sprite if loaded, otherwise draw rectangle
             if (punkFramesLoaded === totalPunkFrames && punkRunFrames[animationFrame].complete) {
-                // Draw player sprite (flash when invulnerable)
-                if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                // Draw player sprite (flash when invulnerable, unless git power is active)
+                const shouldFlash = player.invulnerable && !player.gitPowerActive;
+                if (!shouldFlash || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                    // Apply color tint when git power is active
+                    if (player.gitPowerActive) {
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'multiply';
+                        const hue = (frameCount * 5) % 360;
+                        ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+                        ctx.fillRect(player.x, player.y, player.width, player.height);
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.restore();
+                    }
+
                     ctx.drawImage(
                         punkRunFrames[animationFrame],
                         player.x,
@@ -642,8 +924,14 @@
                 ctx.fillStyle = CONFIG.colors.playerOutline;
                 ctx.fillRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
 
-                if (!player.invulnerable || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
-                    ctx.fillStyle = CONFIG.colors.player;
+                const shouldFlash = player.invulnerable && !player.gitPowerActive;
+                if (!shouldFlash || Math.floor(player.invulnerableTime / 5) % 2 === 0) {
+                    if (player.gitPowerActive) {
+                        const hue = (frameCount * 5) % 360;
+                        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                    } else {
+                        ctx.fillStyle = CONFIG.colors.player;
+                    }
                     ctx.fillRect(player.x, player.y, player.width, player.height);
                 }
             }
@@ -744,6 +1032,51 @@
             obstacles.forEach(obstacle => drawObstacle(obstacle));
         }
 
+        function drawPowerup(powerup) {
+            const sprite = powerup.type === 'weed' ? weedSprite : gitSprite;
+            const spriteLoaded = powerup.type === 'weed' ? weedSpriteLoaded : gitSpriteLoaded;
+
+            if (spriteLoaded && sprite.complete) {
+                // Add a floating/bobbing animation
+                const bobOffset = Math.sin(frameCount * 0.1 + powerup.x * 0.01) * 5;
+
+                // Add glow effect
+                ctx.save();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = powerup.type === 'weed' ? '#00ff00' : '#ff00ff';
+
+                ctx.drawImage(
+                    sprite,
+                    powerup.x,
+                    powerup.y + bobOffset,
+                    powerup.width,
+                    powerup.height
+                );
+
+                ctx.restore();
+            } else {
+                // Fallback: draw colored rectangle with glow
+                ctx.save();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = powerup.type === 'weed' ? '#00ff00' : '#ff00ff';
+                ctx.fillStyle = powerup.type === 'weed' ? '#00ff00' : '#ff00ff';
+
+                const bobOffset = Math.sin(frameCount * 0.1 + powerup.x * 0.01) * 5;
+                ctx.fillRect(
+                    powerup.x,
+                    powerup.y + bobOffset,
+                    powerup.width,
+                    powerup.height
+                );
+
+                ctx.restore();
+            }
+        }
+
+        function drawPowerups() {
+            powerups.forEach(powerup => drawPowerup(powerup));
+        }
+
         function drawUI() {
             ctx.font = 'bold 20px Courier New';
             ctx.textAlign = 'left';
@@ -794,6 +1127,25 @@
                     ctx.fillStyle = '#444444';
                     ctx.fillText('♡', x, 30);
                 }
+            }
+
+            // Git power indicator
+            if (player.gitPowerActive) {
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 28px Courier New';
+                const timeLeft = (player.gitPowerTime / 60).toFixed(1); // Convert frames to seconds
+                const hue = (frameCount * 10) % 360;
+
+                // Animated background
+                ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.3)`;
+                ctx.fillRect(CONFIG.canvas.width / 2 - 100, 55, 200, 40);
+
+                // Text with glow
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+                ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+                ctx.fillText(`⚡ GIT POWER: ${timeLeft}s ⚡`, CONFIG.canvas.width / 2, 80);
+                ctx.shadowBlur = 0;
             }
         }
 
@@ -889,6 +1241,7 @@
             drawBackground();
             drawGround();
             drawObstacles();
+            drawPowerups();
             drawPlayer();
             drawUI();
         }
@@ -908,9 +1261,12 @@
             player.health = player.maxHealth;
             player.invulnerable = false;
             player.invulnerableTime = 0;
+            player.gitPowerActive = false;
+            player.gitPowerTime = 0;
 
             // Reset game data
             obstacles = [];
+            powerups = [];
             scrollSpeed = CONFIG.game.scrollSpeed;
             distance = 0;
             frameCount = 0;
@@ -952,8 +1308,11 @@
 
             frameCount++;
 
-            // Update distance
-            distance += CONFIG.game.distanceMultiplier;
+            // Update distance (faster when git power is active)
+            const distanceMultiplier = player.gitPowerActive
+                ? CONFIG.game.distanceMultiplier * CONFIG.powerups.git.speedMultiplier
+                : CONFIG.game.distanceMultiplier;
+            distance += distanceMultiplier;
 
             // Gradually increase scroll speed
             scrollSpeed = Math.min(
@@ -964,6 +1323,7 @@
             // Update game objects
             updatePlayer();
             updateObstacles();
+            updatePowerups();
 
             // Check collisions
             const collisionResult = checkCollisions();
@@ -1019,6 +1379,13 @@
             }
         });
 
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                releaseJump();
+            }
+        });
+
         // Touch/Click input
         canvas.addEventListener('click', () => {
             handleInput();
@@ -1027,6 +1394,11 @@
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             handleInput();
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            releaseJump();
         });
 
         // ============================================
