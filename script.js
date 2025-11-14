@@ -536,7 +536,7 @@
                         if (obstacleConfig.isDestructible) {
                             score += obstacleConfig.pointValue;
                             obstacles.splice(i, 1); // Remove the cop
-                            player.velocityY = CONFIG.player.jumpForce * 0.5; // Small bounce
+                            player.velocityY = CONFIG.player.jumpForce * 0.2; // Minimal bounce
                         }
                     } else if (checkCollision(player, obstacle)) {
                         // Hit from side or bottom
