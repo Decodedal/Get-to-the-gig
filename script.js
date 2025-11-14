@@ -59,7 +59,7 @@
                 jumpForce: -15,
                 gravity: 0.65,
                 maxFallSpeed: 18,
-                jumpCutMultiplier: 0.4 // Multiply upward velocity by this when jump key released early
+                jumpCutMultiplier: 0.25 // Multiply upward velocity by this when jump key released early
             },
 
             // Ground
@@ -585,6 +585,7 @@
                 player.isOnGround = true;
                 player.isOnPlatform = false;
                 player.currentPlatform = null;
+                jumpKeyHeld = false; // Reset jump key state on landing
             } else {
                 player.isOnGround = false;
             }
@@ -763,6 +764,7 @@
                         player.isOnPlatform = true;
                         player.currentPlatform = obstacle;
                         player.isJumping = false;
+                        jumpKeyHeld = false; // Reset jump key state on landing
 
                         // If it's a destructible cop, destroy it and give points
                         if (obstacleConfig.isDestructible) {
