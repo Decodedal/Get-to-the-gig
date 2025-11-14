@@ -55,7 +55,7 @@
                 x: 150, // Fixed x position (centered-ish)
                 groundY: 450, // Y position when on ground
                 jumpForce: -15,
-                gravity: 0.7,
+                gravity: 0.65,
                 maxFallSpeed: 18
             },
 
@@ -73,7 +73,7 @@
                     height: 60,
                     color: '#ff6600', // Orange/red
                     outline: '#000000',
-                    outlineWidth: 3,
+                    outlineWidth: 2,
                     isPlatform: false, // Always dangerous
                     isDestructible: false
                 },
