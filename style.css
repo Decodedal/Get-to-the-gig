@@ -1,0 +1,26 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #0a0a0a;
+    font-family: 'Courier New', monospace;
+}
+
+#gameCanvas {
+    border: 3px solid #ff006e;
+    box-shadow: 0 0 30px rgba(255, 0, 110, 0.5), 0 0 10px rgba(0, 255, 0, 0.3);
+    display: block;
+    touch-action: none;
+}
+
+.hidden {
+    display: none;
+}
