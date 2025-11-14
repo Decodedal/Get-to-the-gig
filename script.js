@@ -184,7 +184,7 @@
 
         // Cop sprite sheet
         const copSprite = new Image();
-        copSprite.src = 'assets/Mobile - Dead Ahead - Enemies - Cop (1).png';
+        copSprite.src = 'assets/policeman_walk_gif (256×256).gif';
         let copSpriteLoaded = false;
         copSprite.onload = () => {
             copSpriteLoaded = true;
