@@ -69,7 +69,7 @@
             obstacles: {
                 fireCan: {
                     // Burning trash can - instant death
-                    width: 60,
+                    width: 45,
                     height: 60,
                     color: '#ff6600', // Orange/red
                     outline: '#000000',
@@ -91,7 +91,7 @@
                 },
                 obstacle: {
                     // Yellow squares - trash cans, barriers, etc.
-                    width: 60,
+                    width: 45,
                     height: 60,
                     color: '#ffff00', // Yellow
                     outline: '#000000',
