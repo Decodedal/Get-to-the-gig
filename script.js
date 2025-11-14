@@ -111,8 +111,24 @@
                     isPlatform: true, // Can land on
                     isDestructible: false
                 },
-                spawnDistance: 250, // Minimum distance between obstacles
-                maxSpawnDistance: 400, // Maximum distance for variety
+
+                // ===== SPACING TWEAKS - Adjust these to change difficulty! =====
+                spawnDistance: 250,        // Minimum gap between obstacle groups (lower = harder)
+                maxSpawnDistance: 400,     // Maximum gap for variety (higher = easier)
+                minDistanceFloor: 150,     // Minimum distance won't go below this (safety floor)
+
+                tripleStackDistance: 180,  // Distance from single platform to triple-stack (lower = harder to clear)
+                stackHeight: 90,           // Vertical pixels between stacked obstacles (affects jump arc needed)
+
+                // Difficulty scaling (how fast obstacles get closer together as game progresses)
+                difficultySpacing: 10,     // How much to reduce minDistance per difficulty level (higher = gets harder faster)
+                difficultyMaxSpacing: 15,  // How much to reduce maxDistance per difficulty level
+
+                // Triple-stack spawning
+                tripleStackMinDifficulty: 2,    // Difficulty level needed before triple-stacks appear
+                tripleStackMinDistance: 200,    // Minimum distance since last triple-stack before spawning another
+                tripleStackChance: 0.15,        // 15% chance to spawn when eligible
+
                 initialSpeed: 4,
                 speedIncrease: 0.0005 // Speed increase per frame
             },
@@ -385,7 +401,8 @@
         function createObstacle(type, heightLevel = 0, xOffset = 0, isBurning = false) {
             const obstacleConfig = CONFIG.obstacles[type];
             // Height levels: 0 = ground, 1 = medium, 2 = high
-            const yOffset = heightLevel * 90; // Stack height for platforms (scaled up)
+            // Use CONFIG.obstacles.stackHeight so you can tweak vertical spacing!
+            const yOffset = heightLevel * CONFIG.obstacles.stackHeight;
 
             return {
                 type: type,
@@ -409,7 +426,8 @@
             obstacles.push(createObstacle('obstacle', 0, 0));
 
             // Spawn triple-stack yellows further ahead (player must jump from the single to clear these)
-            const tripleStackX = 180; // Distance ahead for the triple stack
+            // Use CONFIG value so you can easily tweak this!
+            const tripleStackX = CONFIG.obstacles.tripleStackDistance;
             obstacles.push(createObstacle('obstacle', 0, tripleStackX));
             obstacles.push(createObstacle('obstacle', 1, tripleStackX));
             obstacles.push(createObstacle('obstacle', 2, tripleStackX));
@@ -507,18 +525,19 @@
                 : 0;
 
             // Variable spawn distance based on difficulty
+            // Use CONFIG values so you can easily tweak difficulty progression!
             const difficultyLevel = Math.floor(distance / 50);
-            const minDistance = Math.max(150, CONFIG.obstacles.spawnDistance - (difficultyLevel * 10));
-            const maxDistance = Math.max(minDistance + 50, CONFIG.obstacles.maxSpawnDistance - (difficultyLevel * 15));
+            const minDistance = Math.max(CONFIG.obstacles.minDistanceFloor, CONFIG.obstacles.spawnDistance - (difficultyLevel * CONFIG.obstacles.difficultySpacing));
+            const maxDistance = Math.max(minDistance + 50, CONFIG.obstacles.maxSpawnDistance - (difficultyLevel * CONFIG.obstacles.difficultyMaxSpacing));
             const spawnDistance = minDistance + Math.random() * (maxDistance - minDistance);
 
             if (rightmostObstacle < CONFIG.canvas.width - spawnDistance) {
                 // Check if we should spawn a triple-stack sequence
-                // Only spawn if: difficulty > 2, hasn't spawned recently, and random chance
+                // All values from CONFIG so you can tweak them!
                 const distanceSinceLastTriple = distance - lastTripleStackDistance;
-                const shouldSpawnTriple = difficultyLevel > 2 &&
-                                         distanceSinceLastTriple > 200 &&
-                                         Math.random() < 0.15; // 15% chance
+                const shouldSpawnTriple = difficultyLevel > CONFIG.obstacles.tripleStackMinDifficulty &&
+                                         distanceSinceLastTriple > CONFIG.obstacles.tripleStackMinDistance &&
+                                         Math.random() < CONFIG.obstacles.tripleStackChance;
 
                 if (shouldSpawnTriple) {
                     spawnTripleStackSequence();
