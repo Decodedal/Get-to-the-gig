@@ -671,12 +671,15 @@
             } else if (obstacle.type === 'cop') {
                 // Draw cop gif if loaded, otherwise green square
                 if (copSpriteLoaded && copSprite.complete) {
-                    // Draw the animated gif (animation plays automatically)
+                    // Draw the animated gif flipped horizontally
+                    ctx.save();
+                    ctx.scale(-1, 1); // Flip horizontally
                     ctx.drawImage(
                         copSprite,
-                        obstacle.x, obstacle.y,
+                        -obstacle.x - obstacle.width, obstacle.y,
                         obstacle.width, obstacle.height
                     );
+                    ctx.restore();
                 } else {
                     // Fallback: Draw green square
                     ctx.fillStyle = obstacleConfig.outline;
